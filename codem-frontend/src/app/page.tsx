@@ -53,6 +53,13 @@ export default function Home() {
       .reverse()
       .find((m) => m.role === "assistant");
     try {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Generating activity... please wait.",
+        },
+      ]);
       const res = await fetch(`${BACKEND_URL}/activities`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -63,6 +70,11 @@ export default function Home() {
       const data = await res.json();
       if (typeof data.activityId === "string") {
         router.push(`/activity/${data.activityId}`);
+      } else if (data?.error) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Failed to generate activity: ${data.error} ${data.detail ?? ""}` },
+        ]);
       }
     } catch (e) {
       console.error(e);
@@ -74,7 +86,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 text-slate-50">
       <div className="mx-auto flex h-screen max-w-5xl flex-col gap-3 px-4 py-4">
-        <header className="flex items-center justify-between gap-4 rounded-lg border border-slate-800 bg-slate-900/70 px-4 py-3 backdrop-blur">
+        <header className="flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900/70 px-4 py-3 backdrop-blur md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-sm font-bold text-slate-950">
               C
@@ -89,13 +101,27 @@ export default function Home() {
               </p>
             </div>
           </div>
-          <button
-            onClick={handleGenerate}
-            disabled={loading}
-            className="hidden rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60 md:inline-flex"
-          >
-            {loading ? "Generating..." : "Generate Activity"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {chatLoading && (
+              <span className="flex items-center gap-2 rounded-full border border-slate-700 bg-slate-800 px-3 py-1 text-[11px] text-slate-200">
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />
+                Codem is thinking...
+              </span>
+            )}
+            {loading && (
+              <span className="flex items-center gap-2 rounded-full border border-emerald-600 bg-emerald-500/20 px-3 py-1 text-[11px] text-emerald-200">
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-emerald-300 border-t-transparent" />
+                Generating activity...
+              </span>
+            )}
+            <button
+              onClick={handleGenerate}
+              disabled={loading}
+              className="hidden rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60 md:inline-flex"
+            >
+              {loading ? "Generating..." : "Generate Activity"}
+            </button>
+          </div>
         </header>
 
         <main className="flex min-h-0 flex-1 flex-col gap-3 rounded-lg border border-slate-800 bg-slate-950/80 p-3 shadow-inner">
