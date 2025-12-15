@@ -10,6 +10,7 @@ const agent_1 = require("./agent");
 const judge_1 = require("./judge");
 const crypto_1 = __importDefault(require("crypto"));
 const database_1 = require("./database");
+const sessions_1 = require("./routes/sessions");
 const auth_1 = require("./auth");
 dotenv_1.default.config();
 // Initialize database
@@ -19,6 +20,8 @@ const port = process.env.PORT || 4000;
 app.use((0, cors_1.default)());
 app.use(express_1.default.json({ limit: "1mb" }));
 const agent = new agent_1.ProblemAgent();
+// Codemm v1.0 sessions API (guided SpecBuilder chatbot)
+app.use("/sessions", sessions_1.sessionsRouter);
 app.post("/generate", async (req, res) => {
     try {
         const count = typeof req.body?.count === "number" ? req.body.count : 5;

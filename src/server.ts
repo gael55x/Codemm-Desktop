@@ -6,6 +6,7 @@ import { Activity, GeneratedProblem } from "./config";
 import { runJudge } from "./judge";
 import crypto from "crypto";
 import { initializeDatabase, userDb, activityDb, submissionDb, DBActivity } from "./database";
+import { sessionsRouter } from "./routes/sessions";
 import {
   hashPassword,
   comparePassword,
@@ -27,6 +28,9 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 const agent = new ProblemAgent();
+
+// Codemm v1.0 sessions API (guided SpecBuilder chatbot)
+app.use("/sessions", sessionsRouter);
 
 app.post("/generate", async (req, res) => {
   try {

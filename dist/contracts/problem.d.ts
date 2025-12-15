@@ -19,9 +19,9 @@ export declare const GeneratedProblemDraftSchema: z.ZodObject<{
     topic_tag: z.ZodString;
 }, "strict", z.ZodTypeAny, {
     id: string;
-    title: string;
     difficulty: "easy" | "medium" | "hard";
     constraints: string;
+    title: string;
     description: string;
     starter_code: string;
     test_suite: string;
@@ -31,9 +31,9 @@ export declare const GeneratedProblemDraftSchema: z.ZodObject<{
     topic_tag: string;
 }, {
     id: string;
-    title: string;
     difficulty: "easy" | "medium" | "hard";
     constraints: string;
+    title: string;
     description: string;
     starter_code: string;
     test_suite: string;
@@ -60,9 +60,9 @@ export declare const GeneratedProblemSchema: z.ZodObject<Omit<{
     topic_tag: z.ZodString;
 }, "reference_solution">, "strict", z.ZodTypeAny, {
     id: string;
-    title: string;
     difficulty: "easy" | "medium" | "hard";
     constraints: string;
+    title: string;
     description: string;
     starter_code: string;
     test_suite: string;
@@ -71,9 +71,9 @@ export declare const GeneratedProblemSchema: z.ZodObject<Omit<{
     topic_tag: string;
 }, {
     id: string;
-    title: string;
     difficulty: "easy" | "medium" | "hard";
     constraints: string;
+    title: string;
     description: string;
     starter_code: string;
     test_suite: string;
