@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.submissionDb = exports.activityDb = exports.userDb = void 0;
+exports.sessionMessageDb = exports.sessionDb = exports.submissionDb = exports.activityDb = exports.userDb = void 0;
 exports.initializeDatabase = initializeDatabase;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const path_1 = __importDefault(require("path"));
@@ -28,6 +28,32 @@ function initializeDatabase() {
       display_name TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+    // Codemm v1.0 sessions (spec-driven generation)
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER,
+      state TEXT NOT NULL,
+      spec_json TEXT NOT NULL,
+      plan_json TEXT,
+      problems_json TEXT,
+      activity_id TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `);
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS session_messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     )
   `);
     // Activities table
@@ -61,6 +87,9 @@ function initializeDatabase() {
   `);
     // Create indexes for better performance
     db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_state ON sessions(state);
+    CREATE INDEX IF NOT EXISTS idx_session_messages_session_id ON session_messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_activities_user_id ON activities(user_id);
     CREATE INDEX IF NOT EXISTS idx_submissions_user_id ON submissions(user_id);
     CREATE INDEX IF NOT EXISTS idx_submissions_activity_id ON submissions(activity_id);
@@ -141,6 +170,53 @@ exports.submissionDb = {
       WHERE user_id = ?
     `);
         return stmt.get(userId);
+    },
+};
+// Codemm v1.0 Session operations (contract-driven)
+exports.sessionDb = {
+    create: (id, state, specJson, userId) => {
+        const stmt = db.prepare(`INSERT INTO sessions (id, user_id, state, spec_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`);
+        stmt.run(id, userId ?? null, state, specJson);
+    },
+    findById: (id) => {
+        const stmt = db.prepare(`SELECT * FROM sessions WHERE id = ?`);
+        return stmt.get(id);
+    },
+    updateState: (id, state) => {
+        const stmt = db.prepare(`UPDATE sessions SET state = ?, updated_at = datetime('now') WHERE id = ?`);
+        stmt.run(state, id);
+    },
+    updateSpecJson: (id, specJson) => {
+        const stmt = db.prepare(`UPDATE sessions SET spec_json = ?, updated_at = datetime('now') WHERE id = ?`);
+        stmt.run(specJson, id);
+    },
+    setPlanJson: (id, planJson) => {
+        const stmt = db.prepare(`UPDATE sessions SET plan_json = ?, updated_at = datetime('now') WHERE id = ?`);
+        stmt.run(planJson, id);
+    },
+    setProblemsJson: (id, problemsJson) => {
+        const stmt = db.prepare(`UPDATE sessions SET problems_json = ?, updated_at = datetime('now') WHERE id = ?`);
+        stmt.run(problemsJson, id);
+    },
+    setActivityId: (id, activityId) => {
+        const stmt = db.prepare(`UPDATE sessions SET activity_id = ?, updated_at = datetime('now') WHERE id = ?`);
+        stmt.run(activityId, id);
+    },
+    setLastError: (id, error) => {
+        const stmt = db.prepare(`UPDATE sessions SET last_error = ?, updated_at = datetime('now') WHERE id = ?`);
+        stmt.run(error, id);
+    },
+};
+exports.sessionMessageDb = {
+    create: (id, sessionId, role, content) => {
+        const stmt = db.prepare(`INSERT INTO session_messages (id, session_id, role, content, created_at)
+       VALUES (?, ?, ?, ?, datetime('now'))`);
+        stmt.run(id, sessionId, role, content);
+    },
+    findBySessionId: (sessionId) => {
+        const stmt = db.prepare(`SELECT * FROM session_messages WHERE session_id = ? ORDER BY created_at ASC`);
+        return stmt.all(sessionId);
     },
 };
 exports.default = db;
