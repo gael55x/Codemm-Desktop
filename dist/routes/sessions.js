@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sessionsRouter = void 0;
 const express_1 = require("express");
 const sessionService_1 = require("../services/sessionService");
+const auth_1 = require("../auth");
 exports.sessionsRouter = (0, express_1.Router)();
 exports.sessionsRouter.post("/", (req, res) => {
     try {
@@ -72,6 +73,31 @@ exports.sessionsRouter.get("/:id", (req, res) => {
         }
         res.status(status).json({
             error: status === 404 ? "Session not found." : "Failed to fetch session.",
+        });
+    }
+});
+exports.sessionsRouter.post("/:id/generate", auth_1.authenticateToken, async (req, res) => {
+    try {
+        const id = req.params.id;
+        const userId = req.user.id;
+        const { activityId, problems } = await (0, sessionService_1.generateFromSession)(id, userId);
+        res.status(200).json({
+            activityId,
+            problemCount: problems.length,
+        });
+    }
+    catch (err) {
+        const status = typeof err?.status === "number" ? err.status : 500;
+        if (status >= 500) {
+            console.error("Error in POST /sessions/:id/generate:", err);
+        }
+        res.status(status).json({
+            error: status === 404
+                ? "Session not found."
+                : status === 409
+                    ? err.message
+                    : "Failed to generate activity.",
+            detail: status >= 500 ? err.message : undefined,
         });
     }
 });

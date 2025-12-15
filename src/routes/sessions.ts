@@ -3,7 +3,9 @@ import {
   createSession,
   getSession,
   processSessionMessage,
+  generateFromSession,
 } from "../services/sessionService";
+import { authenticateToken, type AuthRequest } from "../auth";
 
 export const sessionsRouter = Router();
 
@@ -81,6 +83,35 @@ sessionsRouter.get("/:id", (req, res) => {
     }
     res.status(status).json({
       error: status === 404 ? "Session not found." : "Failed to fetch session.",
+    });
+  }
+});
+
+sessionsRouter.post("/:id/generate", authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const userId = req.user!.id;
+
+    const { activityId, problems } = await generateFromSession(id, userId);
+
+    res.status(200).json({
+      activityId,
+      problemCount: problems.length,
+    });
+  } catch (err: any) {
+    const status = typeof err?.status === "number" ? err.status : 500;
+    if (status >= 500) {
+      console.error("Error in POST /sessions/:id/generate:", err);
+    }
+
+    res.status(status).json({
+      error:
+        status === 404
+          ? "Session not found."
+          : status === 409
+          ? err.message
+          : "Failed to generate activity.",
+      detail: status >= 500 ? err.message : undefined,
     });
   }
 });

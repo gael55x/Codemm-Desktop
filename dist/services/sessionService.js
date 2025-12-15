@@ -6,11 +6,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createSession = createSession;
 exports.getSession = getSession;
 exports.processSessionMessage = processSessionMessage;
+exports.generateFromSession = generateFromSession;
 const crypto_1 = __importDefault(require("crypto"));
 const database_1 = require("../database");
 const session_1 = require("../contracts/session");
 const specBuilder_1 = require("../specBuilder");
 const patch_1 = require("../specBuilder/patch");
+const activitySpec_1 = require("../contracts/activitySpec");
+const planner_1 = require("../planner");
+const generation_1 = require("../generation");
 function requireSession(id) {
     const session = database_1.sessionDb.findById(id);
     if (!session) {
@@ -128,5 +132,73 @@ function processSessionMessage(sessionId, message) {
         spec: nextSpec,
         patch,
     };
+}
+/**
+ * Trigger generation for a READY session.
+ *
+ * Flow:
+ * 1. Assert session.state === READY
+ * 2. Transition to GENERATING
+ * 3. Parse and validate ActivitySpec
+ * 4. Derive ProblemPlan
+ * 5. Generate problems (per-slot with retries)
+ * 6. Persist plan_json + problems_json
+ * 7. Create Activity record
+ * 8. Transition to SAVED
+ * 9. Return activityId
+ *
+ * On error:
+ * - Transition to FAILED
+ * - Set last_error
+ */
+async function generateFromSession(sessionId, userId) {
+    const s = requireSession(sessionId);
+    const state = s.state;
+    if (state !== "READY") {
+        const err = new Error(`Cannot generate when session state is ${state}. Expected READY.`);
+        err.status = 409;
+        throw err;
+    }
+    try {
+        // Transition to GENERATING (lock)
+        transitionOrThrow(state, "GENERATING");
+        database_1.sessionDb.updateState(sessionId, "GENERATING");
+        // Parse and validate ActivitySpec
+        const specObj = parseSpecJson(s.spec_json);
+        const specResult = activitySpec_1.ActivitySpecSchema.safeParse(specObj);
+        if (!specResult.success) {
+            throw new Error(`Invalid ActivitySpec: ${specResult.error.issues[0]?.message ?? "validation failed"}`);
+        }
+        const spec = specResult.data;
+        // Derive ProblemPlan
+        const plan = (0, planner_1.deriveProblemPlan)(spec);
+        database_1.sessionDb.setPlanJson(sessionId, JSON.stringify(plan));
+        // Generate problems (per-slot with retries + Docker validation + discard reference_solution)
+        const problems = await (0, generation_1.generateProblemsFromPlan)(plan);
+        // Persist problems_json
+        database_1.sessionDb.setProblemsJson(sessionId, JSON.stringify(problems));
+        // Create Activity record
+        const activityId = crypto_1.default.randomUUID();
+        const activityTitle = `Activity (${spec.problem_count} problems)`;
+        database_1.activityDb.create(activityId, userId, activityTitle, JSON.stringify(problems), undefined);
+        // Link activity to session
+        database_1.sessionDb.setActivityId(sessionId, activityId);
+        // Transition to SAVED
+        transitionOrThrow("GENERATING", "SAVED");
+        database_1.sessionDb.updateState(sessionId, "SAVED");
+        return { activityId, problems };
+    }
+    catch (err) {
+        // Transition to FAILED
+        try {
+            transitionOrThrow("GENERATING", "FAILED");
+            database_1.sessionDb.updateState(sessionId, "FAILED");
+            database_1.sessionDb.setLastError(sessionId, err.message ?? "Unknown error during generation.");
+        }
+        catch (transitionErr) {
+            console.error("Failed to transition session to FAILED:", transitionErr);
+        }
+        throw err;
+    }
 }
 //# sourceMappingURL=sessionService.js.map

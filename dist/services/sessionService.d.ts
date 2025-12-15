@@ -1,5 +1,6 @@
 import { type SessionState } from "../contracts/session";
 import { type JsonPatchOp } from "../specBuilder/patch";
+import type { GeneratedProblem } from "../contracts/problem";
 export type SessionRecord = {
     id: string;
     state: SessionState;
@@ -32,4 +33,27 @@ export type ProcessMessageResponse = {
     patch: JsonPatchOp[];
 };
 export declare function processSessionMessage(sessionId: string, message: string): ProcessMessageResponse;
+export type GenerateFromSessionResponse = {
+    activityId: string;
+    problems: GeneratedProblem[];
+};
+/**
+ * Trigger generation for a READY session.
+ *
+ * Flow:
+ * 1. Assert session.state === READY
+ * 2. Transition to GENERATING
+ * 3. Parse and validate ActivitySpec
+ * 4. Derive ProblemPlan
+ * 5. Generate problems (per-slot with retries)
+ * 6. Persist plan_json + problems_json
+ * 7. Create Activity record
+ * 8. Transition to SAVED
+ * 9. Return activityId
+ *
+ * On error:
+ * - Transition to FAILED
+ * - Set last_error
+ */
+export declare function generateFromSession(sessionId: string, userId: number): Promise<GenerateFromSessionResponse>;
 //# sourceMappingURL=sessionService.d.ts.map
