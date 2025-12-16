@@ -154,7 +154,7 @@ function deriveExample(
   reason?: string,
   nextQuestion?: string,
   requirementHints: string[] = []
-): string | null {
+): string | undefined {
   const combined = [
     question?.prompt ?? "",
     ...(question?.requirements ?? []),
@@ -206,7 +206,7 @@ function deriveExample(
     return `${keys[0]}:value1, ${keys[1]}:value2`;
   }
 
-  return null;
+  return undefined;
 }
 
 function formatFriendlyReason(expected: ExpectedKind, reason?: string): string {

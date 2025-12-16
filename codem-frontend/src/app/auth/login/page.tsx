@@ -102,29 +102,32 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="relative">
+          <div>
             <label
               htmlFor="password"
               className="block text-sm font-medium text-slate-700"
             >
               Password  
             </label>
-            <input
-              type={showPassword ? "text" : "password"}
-              id="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="mt-1 w-full text-black rounded-lg border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              placeholder="Enter your password"
-            />
-            <button
-              type="button"
-              onClick={togglePasswordVisibility}
-              className="absolute right-3 top-[38px] -translate-y-1/2 text-black hover:text-slate-700"
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                id="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="mt-1 w-full text-black rounded-lg border border-slate-300 px-4 py-2 pr-10 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                placeholder="Enter your password"
+              />
+              <button
+                type="button"
+                onClick={togglePasswordVisibility}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-black hover:text-slate-700"
               >
-              {showPassword ? <Eye className="h-4 w-4 text-black" /> : <EyeOff className="h-4 w-4 text-black" />}
-            </button>
+                {showPassword ? <Eye className="h-4 w-4 text-black" /> : <EyeOff className="h-4 w-4 text-black" />}
+              </button>
+            </div>
           </div>
           
           {error && (
