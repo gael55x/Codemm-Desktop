@@ -1,8 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { ProblemAgent } from "./agent";
-import { Activity, GeneratedProblem } from "./config";
+import { GeneratedProblem } from "./config";
 import { runJudge } from "./judge";
 import { runJavaCodeOnly } from "./execution/javaRun";
 import crypto from "crypto";
@@ -27,8 +26,6 @@ const port = process.env.PORT || 4000;
 
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
-
-const agent = new ProblemAgent();
 
 // Codemm v1.0 sessions API (guided SpecBuilder chatbot)
 app.use("/sessions", sessionsRouter);
@@ -56,51 +53,7 @@ app.post("/run", async (req, res) => {
   }
 });
 
-app.post("/generate", async (req, res) => {
-  try {
-    const count = typeof req.body?.count === "number" ? req.body.count : 5;
-    const prompt =
-      typeof req.body?.prompt === "string" && req.body.prompt.trim().length > 0
-        ? req.body.prompt
-        : undefined;
-
-    const { problems, rawText } = await agent.generateProblems({ count, prompt });
-
-    res.json({
-      problems,
-      raw: rawText,
-    });
-  } catch (err: any) {
-    console.error("Error in /generate:", err);
-    res.status(500).json({ error: "Failed to generate problems.", detail: err?.message });
-  }
-});
-
-// Simple chat proxy so the frontend can have a conversational setup phase
-app.post("/chat", async (req, res) => {
-  try {
-    const { message } = req.body ?? {};
-    if (typeof message !== "string" || !message.trim()) {
-      return res.status(400).json({ error: "message is required string." });
-    }
-
-    // For now, reuse ProblemAgent with a single-turn prompt that includes the user message.
-    const wrappedPrompt = `You are the Codem Problem Setup Assistant. First, chat with the user about what Java OOP problems they want (topic, difficulty, number of problems, and time per activity). Do NOT generate problems yet unless the user clearly asks you to.\n\nUser message:\n${message}`;
-
-    const { rawText } = await agent.generateProblems({
-      count: 5,
-      validate: false,
-      enforceCount: false,
-      prompt: wrappedPrompt,
-    });
-
-    res.json({ reply: rawText });
-  } catch (err: any) {
-    console.error("Error in /chat:", err);
-    res.status(500).json({ error: "Failed to chat with ProblemAgent." });
-  }
-});
-
+// Graded execution: MUST include test suite (unit tests).
 app.post("/submit", optionalAuth, async (req: AuthRequest, res) => {
   try {
     const { code, testSuite, activityId, problemId } = req.body ?? {};
@@ -308,59 +261,6 @@ app.get("/profile", authenticateToken, (req: AuthRequest, res) => {
   }
 });
 
-// Create a new activity: generate problems and store them in database
-app.post("/activities", authenticateToken, async (req: AuthRequest, res) => {
-  try {
-    const { prompt, count, title } = req.body ?? {};
-    const userId = req.user!.id;
-    const num =
-      typeof count === "number" && count > 0 && count <= 20 ? count : 5;
-
-    const cleanPrompt =
-      typeof prompt === "string" && prompt.trim().length > 0
-        ? prompt
-        : undefined;
-
-    const { problems, rawText } = await agent.generateProblems({
-      count: num,
-      ...(cleanPrompt ? { prompt: cleanPrompt } : {}),
-    });
-
-    const id = crypto.randomUUID();
-    const activityTitle =
-      typeof title === "string" && title.trim().length > 0
-        ? title
-        : "Generated Activity";
-
-    const activity: Activity = {
-      id,
-      title: activityTitle,
-      prompt: cleanPrompt ?? rawText.slice(0, 500),
-      problems,
-      createdAt: new Date().toISOString(),
-    };
-
-    // Save to database
-    activityDb.create(
-      id,
-      userId,
-      activityTitle,
-      JSON.stringify(problems),
-      cleanPrompt ?? rawText.slice(0, 500)
-    );
-
-    res.json({
-      activityId: id,
-      activity,
-    });
-  } catch (err: any) {
-    console.error("Error in /activities:", err);
-    res
-      .status(500)
-      .json({ error: "Failed to create activity.", detail: err?.message });
-  }
-});
-
 // Fetch an existing activity by id for the authenticated user
 app.get("/activities/:id", authenticateToken, (req: AuthRequest, res) => {
   const id = req.params.id as string;
@@ -375,15 +275,15 @@ app.get("/activities/:id", authenticateToken, (req: AuthRequest, res) => {
     return res.status(403).json({ error: "You are not authorized to access this activity." });
   }
 
-  const activity: Activity = {
-    id: dbActivity.id,
-    title: dbActivity.title,
-    prompt: dbActivity.prompt || "",
-    problems: JSON.parse(dbActivity.problems),
-    createdAt: dbActivity.created_at,
-  };
-
-  res.json({ activity });
+  res.json({
+    activity: {
+      id: dbActivity.id,
+      title: dbActivity.title,
+      prompt: dbActivity.prompt || "",
+      problems: JSON.parse(dbActivity.problems),
+      createdAt: dbActivity.created_at,
+    },
+  });
 });
 
 // Get all activities for the authenticated user
