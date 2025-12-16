@@ -15,8 +15,7 @@ type ChatMessage = {
 
 export default function Home() {
   const router = useRouter();
-  const { normalizeUserInput, interpretResponse, formatQuestionForDisplay } =
-    useSpecBuilderUX();
+  const { interpretResponse, formatQuestionForDisplay } = useSpecBuilderUX();
   const [loading, setLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -67,21 +66,9 @@ export default function Home() {
 
   async function handleChatSend() {
     if (!chatInput.trim() || !sessionId) return;
+
     const userMessage = chatInput.trim();
-    const normalized = normalizeUserInput(userMessage);
-    const normalizedNote = normalized.notes.length
-      ? `\n${normalized.notes.join(". ")}.`
-      : "";
-
     const outgoing: ChatMessage[] = [{ role: "user", content: userMessage }];
-
-    if (normalized.didChange) {
-      outgoing.push({
-        role: "assistant",
-        tone: "info",
-        content: `I formatted that for the builder as:\n${normalized.normalized}${normalizedNote}`,
-      });
-    }
 
     setMessages((prev) => [...prev, ...outgoing]);
     setChatInput("");
@@ -91,7 +78,7 @@ export default function Home() {
       const res = await fetch(`${BACKEND_URL}/sessions/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: normalized.normalized }),
+        body: JSON.stringify({ message: userMessage }),
       });
       const data = await res.json();
 

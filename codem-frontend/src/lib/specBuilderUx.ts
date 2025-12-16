@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { normalizeUserInput } from "./specNormalization";
 
 export type BackendSpecResponse = {
   accepted: boolean;
@@ -380,7 +379,6 @@ export function useSpecBuilderUX() {
   );
 
   return {
-    normalizeUserInput,
     interpretResponse,
     formatQuestionForDisplay,
     currentQuestion,
