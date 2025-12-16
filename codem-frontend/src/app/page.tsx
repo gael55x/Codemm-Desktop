@@ -65,11 +65,13 @@ export default function Home() {
   };
 
   async function handleChatSend() {
+    if (!sessionId) return;
+
     const rawInput = chatInput.trim();
     const allowEmpty = activeSlot?.key === "constraints";
-    if (!sessionId) return;
     if (!allowEmpty && !rawInput) return;
 
+    // Normalize is a translator, not a validator. If it returns a value, we must send it.
     const normalized = normalizeInput(rawInput);
     if (!normalized.ok) {
       const hintContent = [normalized.friendly, ...normalized.hintLines]
@@ -79,13 +81,13 @@ export default function Home() {
         ...prev,
         { role: "assistant", tone: "hint", content: hintContent },
       ]);
-      setChatInput("");
       return;
     }
 
     const userMessage =
       rawInput ||
       (activeSlot?.key === "constraints" ? "ok" : normalized.value);
+
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setChatInput("");
     setChatLoading(true);
