@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { GeneratedProblem } from "./config";
+import { LegacyGeneratedProblem } from "./types";
 import { runJudge } from "./judge";
 import { runJavaCodeOnly } from "./execution/javaRun";
 import crypto from "crypto";
@@ -69,7 +69,7 @@ app.post("/submit", optionalAuth, async (req: AuthRequest, res) => {
       const dbActivity = activityDb.findById(activityId);
       if (dbActivity && dbActivity.user_id === req.user.id) {
         try {
-          const problems: GeneratedProblem[] = JSON.parse(dbActivity.problems);
+          const problems: LegacyGeneratedProblem[] = JSON.parse(dbActivity.problems);
           const problemExists = problems.some((p) => p.id === problemId);
 
           if (problemExists) {

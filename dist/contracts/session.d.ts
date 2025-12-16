@@ -11,15 +11,15 @@ export declare const SessionMessageSchema: z.ZodObject<{
     created_at: z.ZodString;
 }, "strict", z.ZodTypeAny, {
     id: string;
-    content: string;
-    role: "user" | "assistant";
     session_id: string;
+    role: "user" | "assistant";
+    content: string;
     created_at: string;
 }, {
     id: string;
-    content: string;
-    role: "user" | "assistant";
     session_id: string;
+    role: "user" | "assistant";
+    content: string;
     created_at: string;
 }>;
 export type SessionMessage = z.infer<typeof SessionMessageSchema>;
@@ -34,17 +34,17 @@ export declare const SessionSchema: z.ZodObject<{
             difficulty: z.ZodEnum<["easy", "medium", "hard"]>;
             count: z.ZodNumber;
         }, "strict", z.ZodTypeAny, {
-            count: number;
             difficulty: "easy" | "medium" | "hard";
+            count: number;
         }, {
-            count: number;
             difficulty: "easy" | "medium" | "hard";
+            count: number;
         }>, "many">, {
-            count: number;
             difficulty: "easy" | "medium" | "hard";
+            count: number;
         }[], {
-            count: number;
             difficulty: "easy" | "medium" | "hard";
+            count: number;
         }[]>;
         topic_tags: z.ZodArray<z.ZodString, "many">;
         problem_style: z.ZodString;
@@ -55,8 +55,8 @@ export declare const SessionSchema: z.ZodObject<{
         language: "java";
         problem_count: number;
         difficulty_plan: {
-            count: number;
             difficulty: "easy" | "medium" | "hard";
+            count: number;
         }[];
         topic_tags: string[];
         problem_style: string;
@@ -67,8 +67,8 @@ export declare const SessionSchema: z.ZodObject<{
         language: "java";
         problem_count: number;
         difficulty_plan: {
-            count: number;
             difficulty: "easy" | "medium" | "hard";
+            count: number;
         }[];
         topic_tags: string[];
         problem_style: string;
@@ -79,8 +79,8 @@ export declare const SessionSchema: z.ZodObject<{
         language: "java";
         problem_count: number;
         difficulty_plan: {
-            count: number;
             difficulty: "easy" | "medium" | "hard";
+            count: number;
         }[];
         topic_tags: string[];
         problem_style: string;
@@ -91,8 +91,8 @@ export declare const SessionSchema: z.ZodObject<{
         language: "java";
         problem_count: number;
         difficulty_plan: {
-            count: number;
             difficulty: "easy" | "medium" | "hard";
+            count: number;
         }[];
         topic_tags: string[];
         problem_style: string;
@@ -109,15 +109,15 @@ export declare const SessionSchema: z.ZodObject<{
         created_at: z.ZodString;
     }, "strict", z.ZodTypeAny, {
         id: string;
-        content: string;
-        role: "user" | "assistant";
         session_id: string;
+        role: "user" | "assistant";
+        content: string;
         created_at: string;
     }, {
         id: string;
-        content: string;
-        role: "user" | "assistant";
         session_id: string;
+        role: "user" | "assistant";
+        content: string;
         created_at: string;
     }>, "many">>;
     activity_id: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -131,8 +131,8 @@ export declare const SessionSchema: z.ZodObject<{
         language: "java";
         problem_count: number;
         difficulty_plan: {
-            count: number;
             difficulty: "easy" | "medium" | "hard";
+            count: number;
         }[];
         topic_tags: string[];
         problem_style: string;
@@ -142,9 +142,9 @@ export declare const SessionSchema: z.ZodObject<{
     updated_at: string;
     messages?: {
         id: string;
-        content: string;
-        role: "user" | "assistant";
         session_id: string;
+        role: "user" | "assistant";
+        content: string;
         created_at: string;
     }[] | undefined;
     activity_id?: string | null | undefined;
@@ -158,8 +158,8 @@ export declare const SessionSchema: z.ZodObject<{
         language: "java";
         problem_count: number;
         difficulty_plan: {
-            count: number;
             difficulty: "easy" | "medium" | "hard";
+            count: number;
         }[];
         topic_tags: string[];
         problem_style: string;
@@ -169,9 +169,9 @@ export declare const SessionSchema: z.ZodObject<{
     updated_at: string;
     messages?: {
         id: string;
-        content: string;
-        role: "user" | "assistant";
         session_id: string;
+        role: "user" | "assistant";
+        content: string;
         created_at: string;
     }[] | undefined;
     activity_id?: string | null | undefined;

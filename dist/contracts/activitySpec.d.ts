@@ -8,27 +8,27 @@ export declare const DifficultyPlanItemSchema: z.ZodObject<{
     difficulty: z.ZodEnum<["easy", "medium", "hard"]>;
     count: z.ZodNumber;
 }, "strict", z.ZodTypeAny, {
-    count: number;
     difficulty: "easy" | "medium" | "hard";
+    count: number;
 }, {
-    count: number;
     difficulty: "easy" | "medium" | "hard";
+    count: number;
 }>;
 export declare const DifficultyPlanSchema: z.ZodEffects<z.ZodArray<z.ZodObject<{
     difficulty: z.ZodEnum<["easy", "medium", "hard"]>;
     count: z.ZodNumber;
 }, "strict", z.ZodTypeAny, {
-    count: number;
     difficulty: "easy" | "medium" | "hard";
+    count: number;
 }, {
-    count: number;
     difficulty: "easy" | "medium" | "hard";
+    count: number;
 }>, "many">, {
-    count: number;
     difficulty: "easy" | "medium" | "hard";
+    count: number;
 }[], {
-    count: number;
     difficulty: "easy" | "medium" | "hard";
+    count: number;
 }[]>;
 export declare const ActivitySpecSchema: z.ZodEffects<z.ZodObject<{
     version: z.ZodLiteral<"1.0">;
@@ -38,17 +38,17 @@ export declare const ActivitySpecSchema: z.ZodEffects<z.ZodObject<{
         difficulty: z.ZodEnum<["easy", "medium", "hard"]>;
         count: z.ZodNumber;
     }, "strict", z.ZodTypeAny, {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }, {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }>, "many">, {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }[], {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }[]>;
     topic_tags: z.ZodArray<z.ZodString, "many">;
     problem_style: z.ZodString;
@@ -59,8 +59,8 @@ export declare const ActivitySpecSchema: z.ZodEffects<z.ZodObject<{
     language: "java";
     problem_count: number;
     difficulty_plan: {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }[];
     topic_tags: string[];
     problem_style: string;
@@ -71,8 +71,8 @@ export declare const ActivitySpecSchema: z.ZodEffects<z.ZodObject<{
     language: "java";
     problem_count: number;
     difficulty_plan: {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }[];
     topic_tags: string[];
     problem_style: string;
@@ -83,8 +83,8 @@ export declare const ActivitySpecSchema: z.ZodEffects<z.ZodObject<{
     language: "java";
     problem_count: number;
     difficulty_plan: {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }[];
     topic_tags: string[];
     problem_style: string;
@@ -95,8 +95,8 @@ export declare const ActivitySpecSchema: z.ZodEffects<z.ZodObject<{
     language: "java";
     problem_count: number;
     difficulty_plan: {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }[];
     topic_tags: string[];
     problem_style: string;

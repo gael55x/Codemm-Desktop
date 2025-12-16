@@ -16,17 +16,17 @@ export declare const ActivitySpecDraftSchema: z.ZodEffects<z.ZodObject<{
         difficulty: z.ZodEnum<["easy", "medium", "hard"]>;
         count: z.ZodNumber;
     }, "strict", z.ZodTypeAny, {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }, {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }>, "many">, {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }[], {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }[]>>;
     topic_tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
     problem_style: z.ZodOptional<z.ZodString>;
@@ -37,8 +37,8 @@ export declare const ActivitySpecDraftSchema: z.ZodEffects<z.ZodObject<{
     language?: "java" | undefined;
     problem_count?: number | undefined;
     difficulty_plan?: {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }[] | undefined;
     topic_tags?: string[] | undefined;
     problem_style?: string | undefined;
@@ -49,8 +49,8 @@ export declare const ActivitySpecDraftSchema: z.ZodEffects<z.ZodObject<{
     language?: "java" | undefined;
     problem_count?: number | undefined;
     difficulty_plan?: {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }[] | undefined;
     topic_tags?: string[] | undefined;
     problem_style?: string | undefined;
@@ -61,8 +61,8 @@ export declare const ActivitySpecDraftSchema: z.ZodEffects<z.ZodObject<{
     language?: "java" | undefined;
     problem_count?: number | undefined;
     difficulty_plan?: {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }[] | undefined;
     topic_tags?: string[] | undefined;
     problem_style?: string | undefined;
@@ -73,8 +73,8 @@ export declare const ActivitySpecDraftSchema: z.ZodEffects<z.ZodObject<{
     language?: "java" | undefined;
     problem_count?: number | undefined;
     difficulty_plan?: {
-        count: number;
         difficulty: "easy" | "medium" | "hard";
+        count: number;
     }[] | undefined;
     topic_tags?: string[] | undefined;
     problem_style?: string | undefined;

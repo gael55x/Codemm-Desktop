@@ -2,7 +2,7 @@ import { exec } from "child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { JudgeResult } from "./config";
+import { JudgeResult } from "./types";
 
 function execAsync(command: string, cwd: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
