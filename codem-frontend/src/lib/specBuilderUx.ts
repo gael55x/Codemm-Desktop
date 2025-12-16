@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 export type BackendSpecResponse = {
   accepted: boolean;
@@ -10,377 +10,267 @@ export type BackendSpecResponse = {
   state?: string;
 };
 
-export type ExpectedKind =
-  | "format"
-  | "constraint"
-  | "range"
-  | "missing"
-  | "unknown";
-
-export type QuestionGuide = {
-  prompt: string;
-  requirements: string[];
-  example?: string;
-  formatHint?: string;
+export type SpecSlot = {
+  key: "language" | "problem_count" | "difficulty_plan" | "topic_tags" | "problem_style" | "constraints";
+  intent: string;
+  examples?: string[];
+  normalize?: (input: string) => string | null;
+  diagnose?: (backendError: string) => string;
 };
 
+export type NormalizedInputResult =
+  | { ok: true; value: string; slot: SpecSlot }
+  | { ok: false; slot: SpecSlot; friendly: string; hintLines: string[] };
+
 export type SpecInteractionResult =
-  | { kind: "accepted"; done: boolean; question: QuestionGuide | null }
-  | {
-      kind: "rejected";
-      expected: ExpectedKind;
-      friendly: string;
-      hintLines: string[];
-      originalError?: string;
-    };
+  | { kind: "accepted"; done: boolean; nextSlot: SpecSlot | null }
+  | { kind: "rejected"; slot: SpecSlot | null; friendly: string; hintLines: string[] };
 
-const REQUIREMENT_KEYWORDS =
-  /must|should|required|need to|ensure|exactly|format|constraint/i;
+const DIFFICULTY_KEYS = ["easy", "medium", "hard"] as const;
 
-function classifyExpected(reason: string): ExpectedKind {
-  const lower = reason.toLowerCase();
-  if (!lower.trim()) {
-    return "unknown";
+const DEFAULT_CONSTRAINTS =
+  "Java 17, JUnit 5, no package declarations. Use standard Codemm constraints.";
+
+function normalizeLanguage(input: string): string | null {
+  const lower = input.toLowerCase();
+  if (lower.includes("java")) {
+    return "java";
   }
-  if (lower.includes("missing") || lower.includes("required")) {
-    return "missing";
-  }
-  if (
-    lower.includes("format") ||
-    lower.includes("syntax") ||
-    lower.includes("parse") ||
-    lower.includes("pattern")
-  ) {
-    return "format";
-  }
-  if (
-    lower.includes("range") ||
-    lower.includes("between") ||
-    lower.includes("at least") ||
-    lower.includes("at most") ||
-    lower.includes("less than") ||
-    lower.includes("greater than")
-  ) {
-    return "range";
-  }
-  if (
-    lower.includes("sum") ||
-    lower.includes("only") ||
-    lower.includes("must") ||
-    lower.includes("constraint")
-  ) {
-    return "constraint";
-  }
-  return "unknown";
-}
-
-function extractRequirementLines(text?: string | null): string[] {
-  if (!text) return [];
-
-  const lines = text
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const requirements: string[] = [];
-
-  for (const line of lines) {
-    if (/^[-*•]/.test(line)) {
-      requirements.push(line.replace(/^[-*•]\s*/, "").trim());
-      continue;
-    }
-
-    if (/^(constraints?|requirements?)[:\s-]/i.test(line)) {
-      requirements.push(line.replace(/^(constraints?|requirements?)[:\s-]*/i, ""));
-      continue;
-    }
-
-    if (REQUIREMENT_KEYWORDS.test(line)) {
-      requirements.push(line);
-    }
-  }
-
-  return Array.from(new Set(requirements));
-}
-
-function inferFormatHint(text?: string | null): string | undefined {
-  if (!text) return undefined;
-  const lower = text.toLowerCase();
-
-  if (lower.includes("comma") || lower.includes("separate")) {
-    return "Use comma-separated items with no filler words.";
-  }
-
-  if (/[a-z0-9_]+\s*:\s*[a-z0-9]/i.test(text)) {
-    return "Use key:value pairs so the builder can parse it.";
-  }
-
-  if (lower.includes("list")) {
-    return "Keep it as a compact list rather than sentences.";
-  }
-
-  return undefined;
-}
-
-function summarizeReason(reason: string): string | null {
-  if (!reason.trim()) return null;
-
-  const sumMatch = reason.match(/sum(?:s)?\s*(?:to|of)?\s*(\d+)/i);
-  if (sumMatch?.[1]) {
-    return `The counts need to add up to ${sumMatch[1]}.`;
-  }
-
-  const rangeMatch = reason.match(/between\s+(\d+)\s+and\s+(\d+)/i);
-  if (rangeMatch?.[1] && rangeMatch?.[2]) {
-    return `Keep the values between ${rangeMatch[1]} and ${rangeMatch[2]}.`;
-  }
-
-  const minMatch = reason.match(/at\s+least\s+(\d+)/i);
-  if (minMatch?.[1]) {
-    return `Use a value of at least ${minMatch[1]}.`;
-  }
-
-  const maxMatch = reason.match(/at\s+most\s+(\d+)/i);
-  if (maxMatch?.[1]) {
-    return `Use a value no higher than ${maxMatch[1]}.`;
-  }
-
   return null;
 }
 
-function deriveExample(
-  question: QuestionGuide | null,
-  reason?: string,
-  nextQuestion?: string,
-  requirementHints: string[] = []
-): string | undefined {
-  const combined = [
-    question?.prompt ?? "",
-    ...(question?.requirements ?? []),
-    reason ?? "",
-    nextQuestion ?? "",
-    ...requirementHints,
-  ]
-    .join(" ")
-    .toLowerCase();
+function normalizeProblemCount(input: string): string | null {
+  const matches = input.match(/\d+/g);
+  if (!matches || matches.length === 0) return null;
+  const value = parseInt(matches[0], 10);
+  if (!Number.isFinite(value) || value < 1 || value > 7) return null;
+  return String(value);
+}
 
-  const hasDifficulty =
-    combined.includes("easy") ||
-    combined.includes("medium") ||
-    combined.includes("hard");
+function normalizeDifficultyPlan(input: string): string | null {
+  const lower = input.toLowerCase();
+  const counts: Record<string, number> = { easy: 0, medium: 0, hard: 0 };
 
-  if (hasDifficulty) {
-    const totalMatch = combined.match(/sum(?:s)?\s*(?:to|of)?\s*(\d+)/i);
-    const total = totalMatch ? parseInt(totalMatch[1], 10) : null;
-
-    if (total && Number.isFinite(total) && total > 0) {
-      const base = Math.max(1, Math.floor(total / 3));
-      const remainder = Math.max(0, total - base * 3);
-      const distribution = [base, base, base];
-      for (let i = 0; i < remainder; i += 1) {
-        distribution[i % 3] += 1;
-      }
-      return `easy:${distribution[0]}, medium:${distribution[1]}, hard:${distribution[2]}`;
+  for (const match of lower.matchAll(/(easy|medium|hard)\s*[:\-]?\s*(\d+)/g)) {
+    const key = match[1] as typeof DIFFICULTY_KEYS[number];
+    const value = parseInt(match[2], 10);
+    if (Number.isFinite(value)) {
+      counts[key] += value;
     }
-
-    return "easy:2, medium:2, hard:1";
   }
 
-  const keyCandidates = new Set<string>();
-  requirementHints.forEach((hint) => {
-    const items = hint.split(/[,/]/).map((item) => item.trim());
-    items.forEach((item) => {
-      const cleanItem = item
-        .replace(/^[*-]\s*/, "")
-        .replace(/[^a-z0-9\s]/gi, "")
-        .trim();
-      if (cleanItem && cleanItem.length <= 20 && /\s/.test(cleanItem) === false) {
-        keyCandidates.add(cleanItem.toLowerCase());
-      }
-    });
-  });
-
-  const keys = Array.from(keyCandidates).slice(0, 2);
-  if (keys.length >= 2) {
-    return `${keys[0]}:value1, ${keys[1]}:value2`;
+  for (const match of lower.matchAll(/(\d+)\s*(easy|medium|hard)/g)) {
+    const value = parseInt(match[1], 10);
+    const key = match[2] as typeof DIFFICULTY_KEYS[number];
+    if (Number.isFinite(value)) {
+      counts[key] += value;
+    }
   }
 
-  return undefined;
+  const total = counts.easy + counts.medium + counts.hard;
+  if (total === 0) return null;
+
+  return DIFFICULTY_KEYS.map((key) => `${key}:${counts[key]}`).join(", ");
 }
 
-function formatFriendlyReason(expected: ExpectedKind, reason?: string): string {
-  const summary = summarizeReason(reason ?? "");
+function normalizeTopicTags(input: string): string | null {
+  const tags = input
+    .split(/[,;\n]/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 12);
 
-  switch (expected) {
-    case "format":
-      return [
-        "I understood what you want 👍",
-        "I just need it in a structured format the spec builder can read.",
-        summary,
-      ]
-        .filter(Boolean)
-        .join("\n");
-    case "missing":
-      return [
-        "I understood what you want 👍",
-        "Something is missing based on the required pieces.",
-        summary,
-      ]
-        .filter(Boolean)
-        .join("\n");
-    case "range":
-      return [
-        "I understood what you want 👍",
-        "Keep the numbers within the allowed range.",
-        summary,
-      ]
-        .filter(Boolean)
-        .join("\n");
-    case "constraint":
-      return [
-        "I understood what you want 👍",
-        "It has to satisfy the stated constraints exactly.",
-        summary,
-      ]
-        .filter(Boolean)
-        .join("\n");
-    default:
-      return [
-        "I understood what you want 👍",
-        "I just need it phrased a bit more clearly for the checker.",
-        summary,
-      ]
-        .filter(Boolean)
-        .join("\n");
-  }
+  if (tags.length === 0) return null;
+
+  return tags.join(", ");
 }
 
-export function formatQuestionForDisplay(
-  guide: QuestionGuide | null
-): string | null {
-  if (!guide) return null;
-
-  const blocks: string[] = [guide.prompt];
-
-  if (guide.requirements.length > 0) {
-    blocks.push(`Required:\n• ${guide.requirements.join("\n• ")}`);
-  }
-
-  if (guide.example) {
-    blocks.push(`Example:\n${guide.example}`);
-  } else if (guide.formatHint) {
-    blocks.push(guide.formatHint);
-  }
-
-  return blocks.join("\n\n");
+function normalizeProblemStyle(input: string): string | null {
+  const lower = input.toLowerCase();
+  if (/(stdout|print|console)/.test(lower)) return "stdout";
+  if (/(return|method|function)/.test(lower)) return "return";
+  if (/(mixed|either|both)/.test(lower)) return "mixed";
+  return null;
 }
+
+function deriveSlotKeyFromQuestion(question?: string | null): SpecSlot["key"] | null {
+  const lower = (question ?? "").toLowerCase();
+  if (!lower.trim()) return null;
+  if (lower.includes("language")) return "language";
+  if (lower.includes("how many problems")) return "problem_count";
+  if (lower.includes("difficulty")) return "difficulty_plan";
+  if (lower.includes("topics")) return "topic_tags";
+  if (lower.includes("problem style")) return "problem_style";
+  if (lower.includes("constraints")) return "constraints";
+  return null;
+}
+
+function humanizeSpecError(err: string, slot?: SpecSlot | null): { friendly: string; hints: string[] } {
+  const lower = err.toLowerCase();
+  const hints: string[] = [];
+
+  if (slot?.key === "difficulty_plan" || lower.includes("sum")) {
+    return {
+      friendly: "I almost got that 🙂 Try sharing the difficulty spread like easy:2, medium:2, hard:1.",
+      hints: ["Make sure the counts add up to your total problems.", "Use comma-separated key:value pairs."],
+    };
+  }
+
+  if (slot?.key === "constraints" || lower.includes("junit") || lower.includes("package")) {
+    return {
+      friendly: "I'll handle the Java/JUnit setup automatically.",
+      hints: ["You can just say 'ok' or 'go ahead' here."],
+    };
+  }
+
+  if (slot?.key === "topic_tags") {
+    return {
+      friendly: "List the topics as a short comma-separated list.",
+      hints: ["Example: encapsulation, inheritance, polymorphism"],
+    };
+  }
+
+  if (slot?.key === "problem_style") {
+    return {
+      friendly: "Pick how solutions are checked: stdout, return, or mixed.",
+      hints: ["You can answer with 'stdout', 'return', or 'mixed'."],
+    };
+  }
+
+  if (slot?.key === "problem_count") {
+    return {
+      friendly: "Share how many problems you want (1-7).",
+      hints: ["Just a number like 3 or 5 is perfect."],
+    };
+  }
+
+  if (slot?.key === "language") {
+    return {
+      friendly: "We're set up for Java right now.",
+      hints: ["Reply with 'java' to continue."],
+    };
+  }
+
+  return {
+    friendly: "I got the intent—let's tweak the format slightly.",
+    hints: ["Try concise, structured text like key:value pairs if you're specifying counts."],
+  };
+}
+
+const SPEC_SLOTS: SpecSlot[] = [
+  {
+    key: "language",
+    intent: "What language do you want to use? (Java is available today.)",
+    examples: ["Java"],
+    normalize: normalizeLanguage,
+  },
+  {
+    key: "problem_count",
+    intent: "How many problems should we build? (1-7 is okay.)",
+    examples: ["3", "5 problems"],
+    normalize: normalizeProblemCount,
+  },
+  {
+    key: "difficulty_plan",
+    intent: "How hard should these problems be overall?",
+    examples: ["easy:2, medium:2, hard:1", "2 easy, 2 medium, 1 hard"],
+    normalize: normalizeDifficultyPlan,
+  },
+  {
+    key: "topic_tags",
+    intent: "What topics should we cover? Share a few tags.",
+    examples: ["encapsulation, inheritance, polymorphism"],
+    normalize: normalizeTopicTags,
+  },
+  {
+    key: "problem_style",
+    intent: "How should solutions be checked? (stdout, return, or mixed)",
+    examples: ["stdout", "return"],
+    normalize: normalizeProblemStyle,
+  },
+  {
+    key: "constraints",
+    intent: "I’ll handle the Java/JUnit setup. Anything else you want noted?",
+    examples: ["ok", "that's fine", "any"],
+    normalize: () => DEFAULT_CONSTRAINTS,
+    diagnose: () => "I'll keep the default Java/JUnit constraints in place.",
+  },
+];
 
 export function useSpecBuilderUX() {
-  const [currentQuestion, setCurrentQuestion] = useState<QuestionGuide | null>(
-    null
+  const [activeSlotKey, setActiveSlotKey] = useState<SpecSlot["key"] | null>("language");
+
+  const activeSlot = useMemo(
+    () => SPEC_SLOTS.find((s) => s.key === activeSlotKey) ?? SPEC_SLOTS[0],
+    [activeSlotKey]
   );
 
-  const parseQuestion = useCallback((text?: string | null) => {
-    if (!text || !text.trim()) {
-      return null;
+  const formatSlotPrompt = useCallback((slot: SpecSlot | null): string | null => {
+    if (!slot) return null;
+    const parts = [slot.intent];
+    if (slot.examples?.length) {
+      parts.push(`Example: ${slot.examples[0]}`);
     }
-
-    const lines = text
-      .split(/\n+/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    const prompt =
-      lines.find((line) => !/^[-*•]/.test(line)) ?? text.trim().split("\n")[0];
-
-    const requirements = extractRequirementLines(text);
-    const filteredRequirements = requirements.filter(
-      (req) => req.toLowerCase() !== prompt.toLowerCase()
-    );
-    const example = deriveExample(
-      null,
-      undefined,
-      text,
-      filteredRequirements
-    );
-    const formatHint = inferFormatHint(text);
-
-    return {
-      prompt,
-      requirements: filteredRequirements,
-      example,
-      formatHint,
-    };
+    return parts.join("\n");
   }, []);
+
+  const normalizeInput = useCallback(
+    (input: string): NormalizedInputResult => {
+      const slot = activeSlot;
+      const normalizer = slot.normalize;
+      if (!normalizer) {
+        return { ok: true, value: input.trim(), slot };
+      }
+
+      const normalized = normalizer(input.trim());
+      if (normalized) {
+        return { ok: true, value: normalized, slot };
+      }
+
+      const { friendly, hints } = humanizeSpecError("", slot);
+      return {
+        ok: false,
+        slot,
+        friendly,
+        hintLines: hints,
+      };
+    },
+    [activeSlot]
+  );
 
   const interpretResponse = useCallback(
     (payload: BackendSpecResponse): SpecInteractionResult => {
+      const derivedKey = deriveSlotKeyFromQuestion(payload.nextQuestion) ?? activeSlotKey;
+      const derivedSlot = derivedKey
+        ? SPEC_SLOTS.find((s) => s.key === derivedKey) ?? activeSlot
+        : activeSlot;
+
       if (payload.accepted) {
-        const parsedQuestion = parseQuestion(payload.nextQuestion);
-        setCurrentQuestion(parsedQuestion);
+        const nextSlot = payload.done ? null : derivedSlot;
+        setActiveSlotKey(nextSlot?.key ?? null);
         return {
           kind: "accepted",
           done: payload.done ?? false,
-          question: parsedQuestion,
+          nextSlot,
         };
       }
 
-      const expected = classifyExpected(payload.error ?? "");
-      const requirementHints = Array.from(
-        new Set([
-          ...(currentQuestion?.requirements ?? []),
-          ...extractRequirementLines(payload.nextQuestion),
-          ...extractRequirementLines(payload.error),
-        ])
-      );
-      const example = deriveExample(
-        currentQuestion,
-        payload.error,
-        payload.nextQuestion,
-        requirementHints
-      );
-
-      const hintLines: string[] = [];
-
-      if (expected === "format") {
-        hintLines.push("Use compact key:value pairs separated by commas.");
-      }
-      if (expected === "missing") {
-        hintLines.push("Make sure every required item is present.");
-      }
-      if (expected === "range") {
-        hintLines.push("Keep numbers within the allowed range or totals.");
-      }
-      if (expected === "constraint") {
-        hintLines.push("Follow the stated constraints exactly—no extras or omissions.");
-      }
-
-      if (requirementHints.length > 0) {
-        hintLines.push(`Required:\n• ${requirementHints.join("\n• ")}`);
-      }
-
-      if (example) {
-        hintLines.push(`Example: ${example}`);
-      }
-
-      if (hintLines.length === 0) {
-        hintLines.push("Try a concise, structured reply like key:value, key:value.");
-      }
-
+      setActiveSlotKey(derivedSlot.key);
+      const { friendly, hints } = humanizeSpecError(payload.error ?? "", derivedSlot);
       return {
         kind: "rejected",
-        expected,
-        friendly: formatFriendlyReason(expected, payload.error),
-        hintLines,
-        originalError: payload.error,
+        slot: derivedSlot,
+        friendly,
+        hintLines: hints,
       };
     },
-    [currentQuestion, parseQuestion]
+    [activeSlot, activeSlotKey]
   );
 
   return {
+    activeSlot,
+    formatSlotPrompt,
+    normalizeInput,
     interpretResponse,
-    formatQuestionForDisplay,
-    currentQuestion,
   };
 }

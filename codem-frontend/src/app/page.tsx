@@ -15,7 +15,7 @@ type ChatMessage = {
 
 export default function Home() {
   const router = useRouter();
-  const { interpretResponse, formatQuestionForDisplay } = useSpecBuilderUX();
+  const { interpretResponse, formatSlotPrompt, normalizeInput, activeSlot } = useSpecBuilderUX();
   const [loading, setLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -65,12 +65,28 @@ export default function Home() {
   };
 
   async function handleChatSend() {
-    if (!chatInput.trim() || !sessionId) return;
+    const rawInput = chatInput.trim();
+    const allowEmpty = activeSlot?.key === "constraints";
+    if (!sessionId) return;
+    if (!allowEmpty && !rawInput) return;
 
-    const userMessage = chatInput.trim();
-    const outgoing: ChatMessage[] = [{ role: "user", content: userMessage }];
+    const normalized = normalizeInput(rawInput);
+    if (!normalized.ok) {
+      const hintContent = [normalized.friendly, ...normalized.hintLines]
+        .filter(Boolean)
+        .join("\n\n");
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", tone: "hint", content: hintContent },
+      ]);
+      setChatInput("");
+      return;
+    }
 
-    setMessages((prev) => [...prev, ...outgoing]);
+    const userMessage =
+      rawInput ||
+      (activeSlot?.key === "constraints" ? "ok" : normalized.value);
+    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setChatInput("");
     setChatLoading(true);
 
@@ -78,7 +94,7 @@ export default function Home() {
       const res = await fetch(`${BACKEND_URL}/sessions/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage }),
+        body: JSON.stringify({ message: normalized.value }),
       });
       const data = await res.json();
 
@@ -97,7 +113,7 @@ export default function Home() {
         setSessionState(data.state);
         setSpecReady(data.done === true);
 
-        const questionDisplay = formatQuestionForDisplay(interpreted.question);
+        const questionDisplay = formatSlotPrompt(interpreted.nextSlot);
         if (questionDisplay) {
           setMessages((prev) => [
             ...prev,
@@ -270,6 +286,11 @@ export default function Home() {
                 <p className={`mb-6 max-w-md text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                   Answer a few questions to customize your Java OOP activity. Codemm will generate problems with starter code and JUnit tests.
                 </p>
+                {formatSlotPrompt(activeSlot) && (
+                  <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
+                    {formatSlotPrompt(activeSlot)}
+                  </p>
+                )}
               </div>
             )}
             {messages.map((m, idx) => (
