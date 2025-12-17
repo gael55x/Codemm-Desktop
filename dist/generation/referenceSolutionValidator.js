@@ -56,7 +56,11 @@ async function validateReferenceSolution(draft) {
     }
     // Check that tests pass
     if (!result.success) {
-        const snippet = `${result.stderr || result.stdout || ""}`.slice(0, 1200);
+        const stdout = result.stdout || "";
+        const stderr = result.stderr || "";
+        const likelyJUnitFailure = /Failures\s*\(\d+\):|\[X\]|AssertionFailedError|org\.opentest4j/i.test(stdout);
+        const snippetSource = likelyJUnitFailure ? stdout : stdout.length >= stderr.length ? stdout : stderr;
+        const snippet = `${snippetSource || ""}`.slice(0, 1200);
         const fallback = snippet || `No JUnit output captured (exitCode=${result.exitCode ?? "unknown"}).`;
         throw new ReferenceSolutionValidationError(`Reference solution failed tests for "${draft.title}": ${fallback}`, {
             stdout: result.stdout,

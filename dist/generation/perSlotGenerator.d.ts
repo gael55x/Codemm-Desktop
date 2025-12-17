@@ -1,7 +1,9 @@
 import { type GeneratedProblemDraft } from "../contracts/problem";
 import type { ProblemSlot } from "../planner/types";
-type RepairContext = {
-    previousDraft: GeneratedProblemDraft;
+export type RepairContext = {
+    previousDraft?: GeneratedProblemDraft;
+    previousRaw?: string;
+    errorMessage?: string;
     judgeStdout?: string;
     judgeStderr?: string;
 };
@@ -24,5 +26,4 @@ export type GeneratedDraftWithMeta = {
 export declare function generateSingleProblem(slot: ProblemSlot, opts?: {
     repair?: RepairContext;
 }): Promise<GeneratedDraftWithMeta>;
-export {};
 //# sourceMappingURL=perSlotGenerator.d.ts.map

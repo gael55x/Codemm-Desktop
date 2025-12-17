@@ -32,7 +32,7 @@ declare const IntentResolutionSchema: z.ZodEffects<z.ZodObject<{
             count: number;
         }>, "many">>;
         topic_tags: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-        problem_style: z.ZodOptional<z.ZodString>;
+        problem_style: z.ZodOptional<z.ZodEnum<["stdout", "return", "mixed"]>>;
     }, "strict", z.ZodTypeAny, {
         language?: "java" | undefined;
         problem_count?: number | undefined;
@@ -41,7 +41,7 @@ declare const IntentResolutionSchema: z.ZodEffects<z.ZodObject<{
             count: number;
         }[] | undefined;
         topic_tags?: string[] | undefined;
-        problem_style?: string | undefined;
+        problem_style?: "stdout" | "return" | "mixed" | undefined;
     }, {
         language?: "java" | undefined;
         problem_count?: number | undefined;
@@ -50,7 +50,7 @@ declare const IntentResolutionSchema: z.ZodEffects<z.ZodObject<{
             count: number;
         }[] | undefined;
         topic_tags?: string[] | undefined;
-        problem_style?: string | undefined;
+        problem_style?: "stdout" | "return" | "mixed" | undefined;
     }>;
     confidence: z.ZodRecord<z.ZodString, z.ZodNumber>;
     rationale: z.ZodString;
@@ -64,7 +64,7 @@ declare const IntentResolutionSchema: z.ZodEffects<z.ZodObject<{
             count: number;
         }[] | undefined;
         topic_tags?: string[] | undefined;
-        problem_style?: string | undefined;
+        problem_style?: "stdout" | "return" | "mixed" | undefined;
     };
     confidence: Record<string, number>;
     rationale: string;
@@ -78,7 +78,7 @@ declare const IntentResolutionSchema: z.ZodEffects<z.ZodObject<{
             count: number;
         }[] | undefined;
         topic_tags?: string[] | undefined;
-        problem_style?: string | undefined;
+        problem_style?: "stdout" | "return" | "mixed" | undefined;
     };
     confidence: Record<string, number>;
     rationale: string;
@@ -92,7 +92,7 @@ declare const IntentResolutionSchema: z.ZodEffects<z.ZodObject<{
             count: number;
         }[] | undefined;
         topic_tags?: string[] | undefined;
-        problem_style?: string | undefined;
+        problem_style?: "stdout" | "return" | "mixed" | undefined;
     };
     confidence: Record<string, number>;
     rationale: string;
@@ -106,7 +106,7 @@ declare const IntentResolutionSchema: z.ZodEffects<z.ZodObject<{
             count: number;
         }[] | undefined;
         topic_tags?: string[] | undefined;
-        problem_style?: string | undefined;
+        problem_style?: "stdout" | "return" | "mixed" | undefined;
     };
     confidence: Record<string, number>;
     rationale: string;

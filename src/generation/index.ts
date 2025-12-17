@@ -6,7 +6,7 @@ import {
   validateReferenceSolution,
 } from "./referenceSolutionValidator";
 import { trace } from "../utils/trace";
-import { GenerationSlotFailureError, type GenerationFailureKind } from "./errors";
+import { GenerationContractError, GenerationSlotFailureError, type GenerationFailureKind } from "./errors";
 
 /**
  * Discard reference_solution from GeneratedProblemDraft to produce GeneratedProblem.
@@ -49,7 +49,13 @@ export async function generateProblemsFromPlan(plan: ProblemPlan): Promise<Gener
     let lastDraft: GeneratedProblemDraft | null = null;
     let lastLlmOutputHash: string | undefined;
     let repair:
-      | { previousDraft: GeneratedProblemDraft; judgeStdout?: string; judgeStderr?: string }
+      | {
+          previousDraft?: GeneratedProblemDraft;
+          previousRaw?: string;
+          errorMessage?: string;
+          judgeStdout?: string;
+          judgeStderr?: string;
+        }
       | undefined;
 
     while (!problem && attempts < maxAttempts) {
@@ -75,20 +81,37 @@ export async function generateProblemsFromPlan(plan: ProblemPlan): Promise<Gener
           err.message
         );
 
+        if (err instanceof GenerationContractError) {
+          lastLlmOutputHash = err.llmOutputHash ?? lastLlmOutputHash;
+          repair = {
+            ...(typeof err.rawSnippet === "string" ? { previousRaw: err.rawSnippet } : {}),
+            ...(typeof err.message === "string" && err.message ? { errorMessage: err.message } : {}),
+          };
+        }
+
         if (err instanceof ReferenceSolutionValidationError && lastDraft) {
           repair = {
             previousDraft: lastDraft,
             judgeStdout: err.judgeStdout,
             judgeStderr: err.judgeStderr,
+            errorMessage: err.message,
           };
           trace("generation.attempt.repair", { slotIndex: slot.index, attempts, exitCode: err.exitCode });
         } else {
-          repair = undefined;
+          if (!(err instanceof GenerationContractError)) {
+            repair = undefined;
+          }
         }
 
         if (attempts >= maxAttempts) {
           const kind: GenerationFailureKind =
-            err instanceof ReferenceSolutionValidationError ? err.kind : /Invalid test_suite|schema validation/i.test(String(err?.message)) ? "contract" : "unknown";
+            err instanceof ReferenceSolutionValidationError
+              ? err.kind
+              : err instanceof GenerationContractError
+              ? "contract"
+              : /Invalid test_suite|schema validation|public class|Test suite class name/i.test(String(err?.message))
+              ? "contract"
+              : "unknown";
           throw new GenerationSlotFailureError(
             `Failed to generate slot ${slot.index} after ${maxAttempts} attempts. Last error: ${err.message}`,
             {

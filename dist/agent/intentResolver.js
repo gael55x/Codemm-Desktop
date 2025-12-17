@@ -26,7 +26,7 @@ const IntentResolutionSchema = zod_1.z
             .max(3)
             .optional(),
         topic_tags: zod_1.z.array(zod_1.z.string().trim().min(1).max(40)).min(1).max(12).optional(),
-        problem_style: zod_1.z.string().trim().min(1).max(64).optional(),
+        problem_style: zod_1.z.enum(["stdout", "return", "mixed"]).optional(),
     })
         .strict(),
     confidence: zod_1.z.record(zod_1.z.string(), zod_1.z.number().min(0).max(1)),
@@ -82,7 +82,7 @@ Output JSON schema:
     "problem_count"?: number,
     "difficulty_plan"?: [{"difficulty":"easy|medium|hard","count":number}, ...],
     "topic_tags"?: string[],
-    "problem_style"?: string
+    "problem_style"?: "stdout" | "return" | "mixed"
   },
   "confidence": { "<fieldName>": number(0..1), ... },
   "rationale": "short explanation of what you inferred and why",

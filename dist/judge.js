@@ -6,15 +6,21 @@ const fs_1 = require("fs");
 const os_1 = require("os");
 const path_1 = require("path");
 const trace_1 = require("./utils/trace");
+const JUDGE_TIMEOUT_MS = Number.parseInt(process.env.JUDGE_TIMEOUT_MS ?? "8000", 10);
 function execAsync(command, cwd) {
     return new Promise((resolve, reject) => {
         (0, child_process_1.exec)(command, {
             cwd,
-            timeout: 2000,
+            timeout: Number.isFinite(JUDGE_TIMEOUT_MS) ? JUDGE_TIMEOUT_MS : 8000,
             maxBuffer: 256 * 1024,
         }, (error, stdout, stderr) => {
             const exitCode = error && typeof error.code === "number" ? error.code : error ? 1 : 0;
-            const timedOut = Boolean(error?.killed) && Boolean(error?.signal);
+            const timedOutByNode = Boolean(error?.killed) &&
+                Boolean(error?.signal) &&
+                (error?.code == null);
+            // docker/java often use 137/143 for SIGKILL/SIGTERM termination; treat as timeout-like for diagnostics.
+            const timedOutByExit = exitCode === 137 || exitCode === 143;
+            const timedOut = timedOutByNode || timedOutByExit;
             resolve({ stdout, stderr, exitCode, timedOut });
         });
     });

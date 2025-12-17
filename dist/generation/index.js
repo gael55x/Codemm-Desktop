@@ -61,19 +61,35 @@ async function generateProblemsFromPlan(plan) {
             catch (err) {
                 lastError = err;
                 console.warn(`Slot ${slot.index} generation attempt ${attempts}/${maxAttempts} failed:`, err.message);
+                if (err instanceof errors_1.GenerationContractError) {
+                    lastLlmOutputHash = err.llmOutputHash ?? lastLlmOutputHash;
+                    repair = {
+                        ...(typeof err.rawSnippet === "string" ? { previousRaw: err.rawSnippet } : {}),
+                        ...(typeof err.message === "string" && err.message ? { errorMessage: err.message } : {}),
+                    };
+                }
                 if (err instanceof referenceSolutionValidator_1.ReferenceSolutionValidationError && lastDraft) {
                     repair = {
                         previousDraft: lastDraft,
                         judgeStdout: err.judgeStdout,
                         judgeStderr: err.judgeStderr,
+                        errorMessage: err.message,
                     };
                     (0, trace_1.trace)("generation.attempt.repair", { slotIndex: slot.index, attempts, exitCode: err.exitCode });
                 }
                 else {
-                    repair = undefined;
+                    if (!(err instanceof errors_1.GenerationContractError)) {
+                        repair = undefined;
+                    }
                 }
                 if (attempts >= maxAttempts) {
-                    const kind = err instanceof referenceSolutionValidator_1.ReferenceSolutionValidationError ? err.kind : /Invalid test_suite|schema validation/i.test(String(err?.message)) ? "contract" : "unknown";
+                    const kind = err instanceof referenceSolutionValidator_1.ReferenceSolutionValidationError
+                        ? err.kind
+                        : err instanceof errors_1.GenerationContractError
+                            ? "contract"
+                            : /Invalid test_suite|schema validation|public class|Test suite class name/i.test(String(err?.message))
+                                ? "contract"
+                                : "unknown";
                     throw new errors_1.GenerationSlotFailureError(`Failed to generate slot ${slot.index} after ${maxAttempts} attempts. Last error: ${err.message}`, {
                         slotIndex: slot.index,
                         kind,

@@ -12,16 +12,29 @@ const javaRules_1 = require("../contracts/javaRules");
 const problem_1 = require("../contracts/problem");
 const prompts_1 = require("./prompts");
 const trace_1 = require("../utils/trace");
+const errors_1 = require("./errors");
 const CODEX_MODEL = process.env.CODEX_MODEL ?? "gpt-4.1";
 const MAX_TOKENS = 5000;
 const TEMPERATURE = 0.3;
 function sha256(text) {
     return crypto_1.default.createHash("sha256").update(text).digest("hex");
 }
+function inferPrimaryClassName(starterCode, fallback) {
+    const publicMatch = starterCode.match(/\bpublic\s+(?:abstract\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
+    if (publicMatch?.[1])
+        return publicMatch[1];
+    return (0, javaCodegen_1.inferClassName)(starterCode, fallback);
+}
+function countPublicClasses(source) {
+    return Array.from(source.matchAll(/\bpublic\s+(?:abstract\s+)?class\s+[A-Za-z_][A-Za-z0-9_]*\b/g))
+        .length;
+}
 function buildRepairPrompt(slot, repair) {
-    const previousJson = JSON.stringify(repair.previousDraft, null, 2);
+    const previousJson = repair.previousDraft != null ? JSON.stringify(repair.previousDraft, null, 2) : null;
     const stdoutSnippet = (repair.judgeStdout ?? "").slice(0, 1600);
     const stderrSnippet = (repair.judgeStderr ?? "").slice(0, 1600);
+    const rawSnippet = (repair.previousRaw ?? "").slice(0, 2400);
+    const errorMessage = (repair.errorMessage ?? "").slice(0, 600);
     return `You previously generated a problem JSON for this slot, but the reference_solution FAILED when executed against the test_suite in Docker/JUnit.
 
 Slot requirements:
@@ -39,14 +52,28 @@ ${stdoutSnippet || "(empty)"}
 STDERR:
 ${stderrSnippet || "(empty)"}
 
-Here is your previous JSON.
+Error reason:
+${errorMessage || "(not provided)"}
+
+Hard structure rules (do not violate):
+- starter_code and reference_solution MUST be valid Java 17 with NO package declarations.
+- starter_code MUST NOT declare more than one public class.
+- reference_solution MUST NOT declare more than one public class.
+- test_suite MUST declare class name = (starter_code main class name + "Test").
+- test_suite MUST reference the starter_code main class name.
+- Keep exactly 8 @Test methods.
+
+Here is your previous output (may be truncated):
+${rawSnippet || "(not provided)"}
+
+Here is your previous JSON (preferred to edit if present):
+${previousJson || "(not provided)"}
 
 Goal:
 - Return corrected JSON with the exact same fields.
 - Prefer keeping id/title/description/starter_code stable.
 - You MAY update test_suite and/or reference_solution, but the final pair MUST compile and MUST pass in Docker/JUnit.
 - Keep tests meaningful (no trivial assertions).
-${previousJson}
 
 Return ONLY valid JSON. No markdown. No code fences. No prose.`;
 }
@@ -76,90 +103,108 @@ async function generateSingleProblem(slot, opts) {
         .join("\n");
     const llmOutputHash = sha256(text);
     (0, trace_1.traceText)("generation.llm.raw", text, { extra: { slotIndex: slot.index } });
-    // Parse JSON (reuse legacy robust parser)
-    const parsed = (0, jsonParser_1.tryParseJson)(text);
-    if (!parsed || typeof parsed !== "object") {
-        throw new Error("LLM response is not a valid JSON object.");
+    try {
+        // Parse JSON (reuse legacy robust parser)
+        const parsed = (0, jsonParser_1.tryParseJson)(text);
+        if (!parsed || typeof parsed !== "object") {
+            throw new Error("LLM response is not a valid JSON object.");
+        }
+        // Normalize fields (defensive, same pattern as legacy agent)
+        const raw = parsed;
+        const baseId = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : crypto_1.default.randomUUID();
+        const title = typeof raw.title === "string" && raw.title.trim()
+            ? raw.title.trim()
+            : `Problem for ${slot.topics[0] ?? "Java"}`;
+        const description = typeof raw.description === "string" && raw.description.trim()
+            ? raw.description.trim()
+            : `Problem description for ${title}.`;
+        let starterCode = typeof raw.starter_code === "string" && raw.starter_code.trim() ? raw.starter_code.trim() : "";
+        const publicStarterCount = countPublicClasses(starterCode);
+        if (publicStarterCount > 1) {
+            throw new Error("starter_code must not declare more than one public class.");
+        }
+        // Infer class name from starter_code (prefer public class name)
+        let className = inferPrimaryClassName(starterCode, `Problem${slot.index + 1}`);
+        // If starter_code missing or has package, synthesize
+        if (!starterCode.trim() || /^\s*package\s+/m.test(starterCode)) {
+            starterCode = (0, javaCodegen_1.buildDefaultClassSkeleton)(className);
+            className = inferPrimaryClassName(starterCode, `Problem${slot.index + 1}`);
+        }
+        let testSuite = typeof raw.test_suite === "string" && raw.test_suite.trim() ? raw.test_suite.trim() : "";
+        // Validate test suite structure strictly
+        if (!(0, javaRules_1.isValidJUnit5TestSuite)(testSuite, 8)) {
+            throw new Error(`Invalid test_suite for slot ${slot.index}: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.`);
+        }
+        // Ensure test class name matches starter_code class name + "Test"
+        const expectedTestClassName = `${className}Test`;
+        const actualTestClassName = (0, javaCodegen_1.inferClassName)(testSuite, expectedTestClassName);
+        if (actualTestClassName !== expectedTestClassName) {
+            throw new Error(`Test suite class name "${actualTestClassName}" must match "${expectedTestClassName}".`);
+        }
+        // Ensure test suite references the class
+        const referencesClass = new RegExp(`\\b${className}\\b`).test(testSuite);
+        if (!referencesClass) {
+            throw new Error(`Test suite for slot ${slot.index} does not reference class "${className}".`);
+        }
+        let referenceSolution = typeof raw.reference_solution === "string" && raw.reference_solution.trim()
+            ? raw.reference_solution.trim()
+            : "";
+        if (!referenceSolution.trim()) {
+            throw new Error(`Missing reference_solution for slot ${slot.index}.`);
+        }
+        const publicRefCount = countPublicClasses(referenceSolution);
+        if (publicRefCount > 1) {
+            throw new Error("reference_solution must not declare more than one public class.");
+        }
+        // Ensure reference solution has no package
+        if (/^\s*package\s+/m.test(referenceSolution)) {
+            throw new Error(`reference_solution for slot ${slot.index} contains package declaration.`);
+        }
+        // Ensure reference solution matches class name (prefer public class too)
+        const refClassName = inferPrimaryClassName(referenceSolution, "");
+        if (refClassName !== className) {
+            throw new Error(`reference_solution class name "${refClassName}" does not match starter_code class name "${className}".`);
+        }
+        const constraints = typeof raw.constraints === "string" && raw.constraints.trim()
+            ? raw.constraints.trim()
+            : slot.constraints;
+        const sampleInputs = Array.isArray(raw.sample_inputs)
+            ? raw.sample_inputs
+            : [];
+        const sampleOutputs = Array.isArray(raw.sample_outputs)
+            ? raw.sample_outputs
+            : [];
+        const difficulty = slot.difficulty;
+        const topicTag = slot.topics[0] ?? "oop";
+        const draft = {
+            id: baseId,
+            title,
+            description,
+            starter_code: starterCode,
+            test_suite: testSuite,
+            reference_solution: referenceSolution,
+            constraints,
+            sample_inputs: sampleInputs,
+            sample_outputs: sampleOutputs,
+            difficulty,
+            topic_tag: topicTag,
+        };
+        (0, trace_1.trace)("generation.draft.meta", { slotIndex: slot.index, title, className, difficulty, topicTag });
+        // Validate against GeneratedProblemDraftSchema
+        const result = problem_1.GeneratedProblemDraftSchema.safeParse(draft);
+        if (!result.success) {
+            const firstError = result.error.issues[0];
+            throw new Error(`Generated problem for slot ${slot.index} failed schema validation: ${firstError?.message ?? "unknown error"}`);
+        }
+        return { draft: result.data, meta: { llmOutputHash } };
     }
-    // Normalize fields (defensive, same pattern as legacy agent)
-    const raw = parsed;
-    const baseId = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : crypto_1.default.randomUUID();
-    const title = typeof raw.title === "string" && raw.title.trim()
-        ? raw.title.trim()
-        : `Problem for ${slot.topics[0] ?? "Java"}`;
-    const description = typeof raw.description === "string" && raw.description.trim()
-        ? raw.description.trim()
-        : `Problem description for ${title}.`;
-    let starterCode = typeof raw.starter_code === "string" && raw.starter_code.trim() ? raw.starter_code.trim() : "";
-    // Infer class name from starter_code
-    let className = (0, javaCodegen_1.inferClassName)(starterCode, `Problem${slot.index + 1}`);
-    // If starter_code missing or has package, synthesize
-    if (!starterCode.trim() || /^\s*package\s+/m.test(starterCode)) {
-        starterCode = (0, javaCodegen_1.buildDefaultClassSkeleton)(className);
-        className = (0, javaCodegen_1.inferClassName)(starterCode, `Problem${slot.index + 1}`);
+    catch (err) {
+        const msg = err?.message ?? String(err);
+        throw new errors_1.GenerationContractError(msg, {
+            slotIndex: slot.index,
+            llmOutputHash,
+            rawSnippet: text.slice(0, 2400),
+        });
     }
-    let testSuite = typeof raw.test_suite === "string" && raw.test_suite.trim() ? raw.test_suite.trim() : "";
-    // Validate test suite structure strictly
-    if (!(0, javaRules_1.isValidJUnit5TestSuite)(testSuite, 8)) {
-        throw new Error(`Invalid test_suite for slot ${slot.index}: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.`);
-    }
-    // Ensure test class name matches starter_code class name + "Test"
-    const expectedTestClassName = `${className}Test`;
-    const actualTestClassName = (0, javaCodegen_1.inferClassName)(testSuite, expectedTestClassName);
-    if (actualTestClassName !== expectedTestClassName) {
-        throw new Error(`Test suite class name "${actualTestClassName}" must match "${expectedTestClassName}".`);
-    }
-    // Ensure test suite references the class
-    const referencesClass = new RegExp(`\\b${className}\\b`).test(testSuite);
-    if (!referencesClass) {
-        throw new Error(`Test suite for slot ${slot.index} does not reference class "${className}".`);
-    }
-    let referenceSolution = typeof raw.reference_solution === "string" && raw.reference_solution.trim()
-        ? raw.reference_solution.trim()
-        : "";
-    if (!referenceSolution.trim()) {
-        throw new Error(`Missing reference_solution for slot ${slot.index}.`);
-    }
-    // Ensure reference solution has no package
-    if (/^\s*package\s+/m.test(referenceSolution)) {
-        throw new Error(`reference_solution for slot ${slot.index} contains package declaration.`);
-    }
-    // Ensure reference solution matches class name
-    const refClassName = (0, javaCodegen_1.inferClassName)(referenceSolution, "");
-    if (refClassName !== className) {
-        throw new Error(`reference_solution class name "${refClassName}" does not match starter_code class name "${className}".`);
-    }
-    const constraints = typeof raw.constraints === "string" && raw.constraints.trim()
-        ? raw.constraints.trim()
-        : slot.constraints;
-    const sampleInputs = Array.isArray(raw.sample_inputs)
-        ? raw.sample_inputs
-        : [];
-    const sampleOutputs = Array.isArray(raw.sample_outputs)
-        ? raw.sample_outputs
-        : [];
-    const difficulty = slot.difficulty;
-    const topicTag = slot.topics[0] ?? "oop";
-    const draft = {
-        id: baseId,
-        title,
-        description,
-        starter_code: starterCode,
-        test_suite: testSuite,
-        reference_solution: referenceSolution,
-        constraints,
-        sample_inputs: sampleInputs,
-        sample_outputs: sampleOutputs,
-        difficulty,
-        topic_tag: topicTag,
-    };
-    (0, trace_1.trace)("generation.draft.meta", { slotIndex: slot.index, title, className, difficulty, topicTag });
-    // Validate against GeneratedProblemDraftSchema
-    const result = problem_1.GeneratedProblemDraftSchema.safeParse(draft);
-    if (!result.success) {
-        const firstError = result.error.issues[0];
-        throw new Error(`Generated problem for slot ${slot.index} failed schema validation: ${firstError?.message ?? "unknown error"}`);
-    }
-    return { draft: result.data, meta: { llmOutputHash } };
 }
 //# sourceMappingURL=perSlotGenerator.js.map

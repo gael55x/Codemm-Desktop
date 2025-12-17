@@ -5,6 +5,8 @@ import { join } from "path";
 import { JudgeResult } from "./types";
 import { trace } from "./utils/trace";
 
+const JUDGE_TIMEOUT_MS = Number.parseInt(process.env.JUDGE_TIMEOUT_MS ?? "8000", 10);
+
 function execAsync(
   command: string,
   cwd: string
@@ -14,13 +16,19 @@ function execAsync(
       command,
       {
         cwd,
-        timeout: 2000,
+        timeout: Number.isFinite(JUDGE_TIMEOUT_MS) ? JUDGE_TIMEOUT_MS : 8000,
         maxBuffer: 256 * 1024,
       },
       (error, stdout, stderr) => {
         const exitCode =
           error && typeof (error as any).code === "number" ? (error as any).code : error ? 1 : 0;
-        const timedOut = Boolean((error as any)?.killed) && Boolean((error as any)?.signal);
+        const timedOutByNode =
+          Boolean((error as any)?.killed) &&
+          Boolean((error as any)?.signal) &&
+          ((error as any)?.code == null);
+        // docker/java often use 137/143 for SIGKILL/SIGTERM termination; treat as timeout-like for diagnostics.
+        const timedOutByExit = exitCode === 137 || exitCode === 143;
+        const timedOut = timedOutByNode || timedOutByExit;
         resolve({ stdout, stderr, exitCode, timedOut });
       }
     );
