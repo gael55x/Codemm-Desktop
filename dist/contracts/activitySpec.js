@@ -1,9 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ActivitySpecSchema = exports.DifficultyPlanSchema = exports.DifficultyPlanItemSchema = exports.DifficultySchema = exports.ActivityLanguageSchema = exports.CODEMM_SPEC_VERSION = void 0;
+exports.ActivitySpecSchema = exports.DifficultyPlanSchema = exports.DifficultyPlanItemSchema = exports.DifficultySchema = exports.ActivityLanguageSchema = exports.CODEMM_DEFAULT_CONSTRAINTS = exports.CODEMM_SPEC_VERSION = void 0;
 exports.createEmptyActivitySpec = createEmptyActivitySpec;
 const zod_1 = require("zod");
 exports.CODEMM_SPEC_VERSION = "1.0";
+exports.CODEMM_DEFAULT_CONSTRAINTS = "Java 17, JUnit 5, no package declarations.";
 exports.ActivityLanguageSchema = zod_1.z.enum(["java"]);
 exports.DifficultySchema = zod_1.z.enum(["easy", "medium", "hard"]);
 exports.DifficultyPlanItemSchema = zod_1.z
@@ -82,7 +83,7 @@ function createEmptyActivitySpec() {
         ],
         topic_tags: ["oop"],
         problem_style: "stdout",
-        constraints: "Java 17, JUnit 5, no package declarations.",
+        constraints: exports.CODEMM_DEFAULT_CONSTRAINTS,
         test_case_count: 8,
     };
 }

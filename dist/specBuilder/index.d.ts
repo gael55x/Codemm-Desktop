@@ -1,6 +1,5 @@
 import type { ActivitySpec } from "../contracts/activitySpec";
-import type { JsonPatchOp } from "./patch";
-import { type SpecQuestionKey } from "./questions";
+import { type JsonPatchOp } from "./patch";
 import { type SpecDraft } from "./validators";
 export type SpecBuilderResult = {
     accepted: boolean;
@@ -10,7 +9,6 @@ export type SpecBuilderResult = {
     error?: string;
     spec?: SpecDraft;
 };
-export declare function getNextQuestionKey(spec: SpecDraft): SpecQuestionKey | null;
 export declare function getNextQuestion(spec: SpecDraft): string;
 /**
  * PURE SpecBuilder step.

@@ -11,12 +11,13 @@ const crypto_1 = __importDefault(require("crypto"));
 const database_1 = require("../database");
 const session_1 = require("../contracts/session");
 const specBuilder_1 = require("../specBuilder");
+const intent_1 = require("../specBuilder/intent");
 const patch_1 = require("../specBuilder/patch");
 const activitySpec_1 = require("../contracts/activitySpec");
 const planner_1 = require("../planner");
 const generation_1 = require("../generation");
-const questions_1 = require("../specBuilder/questions");
-const completeness_1 = require("../specBuilder/completeness");
+const validators_1 = require("../specBuilder/validators");
+const intentInterpreter_1 = require("../intentInterpreter");
 function requireSession(id) {
     const session = database_1.sessionDb.findById(id);
     if (!session) {
@@ -70,12 +71,6 @@ function getCollectorState(sessionId, expectedQuestionKey) {
     }
     return { currentQuestionKey: storedKey, buffer };
 }
-function getQuestionText(key) {
-    if (!key) {
-        return "Spec looks complete. You can generate the activity.";
-    }
-    return questions_1.QUESTIONS[key];
-}
 function transitionOrThrow(from, to) {
     if (from === to)
         return;
@@ -90,7 +85,7 @@ function createSession(userId) {
     const state = "DRAFT";
     // Contract allows null or {} — DB column is NOT NULL, so we store {}.
     database_1.sessionDb.create(id, state, "{}", userId ?? null);
-    const initialQuestionKey = (0, specBuilder_1.getNextQuestionKey)({});
+    const initialQuestionKey = (0, intent_1.nextSlotKey)({});
     database_1.sessionCollectorDb.upsert(id, initialQuestionKey, []);
     return { sessionId: id, state };
 }
@@ -98,7 +93,7 @@ function getSession(id) {
     const s = requireSession(id);
     const messages = database_1.sessionMessageDb.findBySessionId(id);
     const spec = parseSpecJson(s.spec_json);
-    const collector = getCollectorState(id, (0, specBuilder_1.getNextQuestionKey)(spec));
+    const collector = getCollectorState(id, (0, intent_1.nextSlotKey)(spec));
     return {
         id: s.id,
         state: s.state,
@@ -116,32 +111,108 @@ function processSessionMessage(sessionId, message) {
         throw err;
     }
     const currentSpec = parseSpecJson(s.spec_json);
-    const currentQuestionKey = (0, specBuilder_1.getNextQuestionKey)(currentSpec);
-    const currentQuestion = getQuestionText(currentQuestionKey);
+    const currentQuestionKey = (0, intent_1.nextSlotKey)(currentSpec);
     // Always persist user message.
     database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "user", message);
     const collector = getCollectorState(sessionId, currentQuestionKey);
     const updatedBuffer = [...collector.buffer, message];
     persistCollectorState(sessionId, { currentQuestionKey, buffer: updatedBuffer });
-    if (currentQuestionKey) {
-        const completeness = (0, completeness_1.checkAnswerCompleteness)(currentQuestionKey, updatedBuffer, currentSpec);
-        if (!completeness.complete) {
-            const missingNote = completeness.missing.length > 0
-                ? ` Still need: ${completeness.missing.join(", ")}.`
-                : "";
-            const error = `I'll send this once all required items are present.${missingNote}`;
-            database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "assistant", `${error}\n\n${currentQuestion}`);
+    const combined = updatedBuffer.join(" ").trim();
+    const fixed = (0, validators_1.ensureFixedFields)(currentSpec);
+    const specWithFixed = fixed.length > 0 ? (0, patch_1.applyJsonPatch)(currentSpec, fixed) : currentSpec;
+    const interpreted = (0, intentInterpreter_1.interpretIntent)(specWithFixed, combined);
+    if (interpreted.kind === "conflict") {
+        // Persist assistant clarification.
+        const content = interpreted.message;
+        database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "assistant", content);
+        // Persist fixed invariants (safe side-effect, improves UX on repeated clarifications).
+        if (fixed.length > 0) {
+            database_1.sessionDb.updateSpecJson(sessionId, JSON.stringify(specWithFixed));
+        }
+        // Reset buffer; treat this as a new question turn.
+        persistCollectorState(sessionId, {
+            currentQuestionKey: (0, intent_1.nextSlotKey)(specWithFixed),
+            buffer: [],
+        });
+        // Transition into CLARIFYING (agent asked a follow-up).
+        const target = "CLARIFYING";
+        transitionOrThrow(state, target);
+        database_1.sessionDb.updateState(sessionId, target);
+        return {
+            accepted: true,
+            state: target,
+            nextQuestion: content,
+            done: false,
+            spec: specWithFixed,
+            patch: fixed,
+        };
+    }
+    if (interpreted.kind === "patch") {
+        const nextSpecCandidate = (0, patch_1.applyJsonPatch)(specWithFixed, interpreted.patch);
+        const contractError = (0, validators_1.validatePatchedSpecOrError)(nextSpecCandidate);
+        if (contractError) {
+            const nextQuestion = (0, specBuilder_1.getNextQuestion)(specWithFixed);
+            database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "assistant", `${contractError}\n\n${nextQuestion}`);
             return {
                 accepted: false,
                 state,
-                nextQuestion: currentQuestion,
+                nextQuestion,
                 done: false,
-                error,
-                spec: currentSpec,
+                error: contractError,
+                spec: specWithFixed,
             };
         }
+        const nextSpec = nextSpecCandidate;
+        const done = (0, validators_1.isSpecComplete)(nextSpecCandidate);
+        const nextQuestion = done
+            ? "Spec looks complete. You can generate the activity."
+            : (0, specBuilder_1.getNextQuestion)(nextSpecCandidate);
+        const summaryPrefix = interpreted.summaryLines.length >= 2
+            ? `Got it: ${interpreted.summaryLines.join("; ")}\n\n`
+            : "";
+        const assistantText = `${summaryPrefix}${nextQuestion}`;
+        database_1.sessionDb.updateSpecJson(sessionId, JSON.stringify(nextSpec));
+        database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "assistant", assistantText);
+        persistCollectorState(sessionId, {
+            currentQuestionKey: (0, intent_1.nextSlotKey)(nextSpecCandidate),
+            buffer: [],
+        });
+        const patch = [...fixed, ...interpreted.patch];
+        if (!done) {
+            const target = "CLARIFYING";
+            transitionOrThrow(state, target);
+            database_1.sessionDb.updateState(sessionId, target);
+            return {
+                accepted: true,
+                state: target,
+                nextQuestion: assistantText,
+                done: false,
+                spec: nextSpec,
+                patch,
+            };
+        }
+        // done === true
+        if (state === "DRAFT") {
+            transitionOrThrow("DRAFT", "CLARIFYING");
+            database_1.sessionDb.updateState(sessionId, "CLARIFYING");
+            transitionOrThrow("CLARIFYING", "READY");
+            database_1.sessionDb.updateState(sessionId, "READY");
+        }
+        else {
+            transitionOrThrow(state, "READY");
+            database_1.sessionDb.updateState(sessionId, "READY");
+        }
+        return {
+            accepted: true,
+            state: "READY",
+            nextQuestion: assistantText,
+            done: true,
+            spec: nextSpec,
+            patch,
+        };
     }
-    const combined = updatedBuffer.join(" ").trim();
+    // Legacy deterministic step (single-slot parsing).
+    // Note: pass the persisted spec so the returned patch reflects the actual mutation (includes fixed fields).
     const result = (0, specBuilder_1.specBuilderStep)(currentSpec, combined);
     if (!result.accepted) {
         const error = result.error ?? "Invalid answer.";
@@ -156,7 +227,7 @@ function processSessionMessage(sessionId, message) {
             nextQuestion,
             done: false,
             error,
-            spec: currentSpec,
+            spec: specWithFixed,
         };
     }
     const patch = result.patch ?? [];
@@ -164,8 +235,7 @@ function processSessionMessage(sessionId, message) {
     database_1.sessionDb.updateSpecJson(sessionId, JSON.stringify(nextSpec));
     const nextQuestion = result.nextQuestion;
     database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "assistant", nextQuestion);
-    const nextQuestionKey = (0, specBuilder_1.getNextQuestionKey)(nextSpec);
-    persistCollectorState(sessionId, { currentQuestionKey: nextQuestionKey, buffer: [] });
+    persistCollectorState(sessionId, { currentQuestionKey: (0, intent_1.nextSlotKey)(nextSpec), buffer: [] });
     // Update session state (strict transitions)
     if (!result.done) {
         // DRAFT -> CLARIFYING, CLARIFYING -> CLARIFYING

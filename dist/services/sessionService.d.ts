@@ -1,7 +1,6 @@
 import { type SessionState } from "../contracts/session";
 import { type JsonPatchOp } from "../specBuilder/patch";
 import type { GeneratedProblem } from "../contracts/problem";
-import { type SpecQuestionKey } from "../specBuilder/questions";
 export type SessionRecord = {
     id: string;
     state: SessionState;
@@ -13,7 +12,7 @@ export type SessionRecord = {
         created_at: string;
     }[];
     collector: {
-        currentQuestionKey: SpecQuestionKey | null;
+        currentQuestionKey: string | null;
         buffer: string[];
     };
 };

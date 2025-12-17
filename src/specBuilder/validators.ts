@@ -5,6 +5,7 @@ import {
   ActivitySpecSchema,
   DifficultyPlanSchema,
   DifficultySchema,
+  CODEMM_DEFAULT_CONSTRAINTS,
 } from "../contracts/activitySpec";
 import type { JsonPatchOp } from "./patch";
 
@@ -82,6 +83,14 @@ export function ensureFixedFields(spec: SpecDraft): JsonPatchOp[] {
   }
   if (spec.version !== "1.0") {
     patch.push({ op: spec.version == null ? "add" : "replace", path: "/version", value: "1.0" });
+  }
+  // Hard rule: constraints are invariant for Codemm v1.0.
+  if (spec.constraints !== CODEMM_DEFAULT_CONSTRAINTS) {
+    patch.push({
+      op: spec.constraints == null ? "add" : "replace",
+      path: "/constraints",
+      value: CODEMM_DEFAULT_CONSTRAINTS,
+    });
   }
   return patch;
 }

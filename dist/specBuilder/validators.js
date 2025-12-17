@@ -82,6 +82,14 @@ function ensureFixedFields(spec) {
     if (spec.version !== "1.0") {
         patch.push({ op: spec.version == null ? "add" : "replace", path: "/version", value: "1.0" });
     }
+    // Hard rule: constraints are invariant for Codemm v1.0.
+    if (spec.constraints !== activitySpec_1.CODEMM_DEFAULT_CONSTRAINTS) {
+        patch.push({
+            op: spec.constraints == null ? "add" : "replace",
+            path: "/constraints",
+            value: activitySpec_1.CODEMM_DEFAULT_CONSTRAINTS,
+        });
+    }
     return patch;
 }
 function isSpecComplete(spec) {

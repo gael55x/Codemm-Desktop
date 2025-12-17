@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { sessionDb, sessionMessageDb, activityDb, sessionCollectorDb } from "../database";
 import { canTransition, type SessionState } from "../contracts/session";
-import { specBuilderStep, type SpecBuilderResult } from "../specBuilder";
+import { getNextQuestion, specBuilderStep, type SpecBuilderResult } from "../specBuilder";
 import { nextSlotKey } from "../specBuilder/intent";
 import { applyJsonPatch, type JsonPatchOp } from "../specBuilder/patch";
 import { ActivitySpecSchema, type ActivitySpec } from "../contracts/activitySpec";
@@ -9,6 +9,8 @@ import { deriveProblemPlan } from "../planner";
 import { generateProblemsFromPlan } from "../generation";
 import type { GeneratedProblem } from "../contracts/problem";
 import type { SpecDraft } from "../specBuilder/validators";
+import { ensureFixedFields, isSpecComplete, validatePatchedSpecOrError } from "../specBuilder/validators";
+import { interpretIntent } from "../intentInterpreter";
 
 export type SessionRecord = {
   id: string;
@@ -158,6 +160,131 @@ export function processSessionMessage(sessionId: string, message: string): Proce
   persistCollectorState(sessionId, { currentQuestionKey, buffer: updatedBuffer });
 
   const combined = updatedBuffer.join(" ").trim();
+  const fixed = ensureFixedFields(currentSpec as SpecDraft);
+  const specWithFixed = fixed.length > 0 ? applyJsonPatch(currentSpec as any, fixed) : currentSpec;
+
+  const interpreted = interpretIntent(specWithFixed as SpecDraft, combined);
+
+  if (interpreted.kind === "conflict") {
+    // Persist assistant clarification.
+    const content = interpreted.message;
+    sessionMessageDb.create(crypto.randomUUID(), sessionId, "assistant", content);
+
+    // Persist fixed invariants (safe side-effect, improves UX on repeated clarifications).
+    if (fixed.length > 0) {
+      sessionDb.updateSpecJson(sessionId, JSON.stringify(specWithFixed));
+    }
+
+    // Reset buffer; treat this as a new question turn.
+    persistCollectorState(sessionId, {
+      currentQuestionKey: nextSlotKey(specWithFixed as SpecDraft),
+      buffer: [],
+    });
+
+    // Transition into CLARIFYING (agent asked a follow-up).
+    const target: SessionState = "CLARIFYING";
+    transitionOrThrow(state, target);
+    sessionDb.updateState(sessionId, target);
+
+    return {
+      accepted: true,
+      state: target,
+      nextQuestion: content,
+      done: false,
+      spec: specWithFixed,
+      patch: fixed,
+    };
+  }
+
+  if (interpreted.kind === "patch") {
+    const nextSpecCandidate = applyJsonPatch(specWithFixed as any, interpreted.patch);
+    const contractError = validatePatchedSpecOrError(nextSpecCandidate as SpecDraft);
+
+    if (contractError) {
+      const nextQuestion = getNextQuestion(specWithFixed as SpecDraft);
+      sessionMessageDb.create(
+        crypto.randomUUID(),
+        sessionId,
+        "assistant",
+        `${contractError}\n\n${nextQuestion}`
+      );
+
+      return {
+        accepted: false,
+        state,
+        nextQuestion,
+        done: false,
+        error: contractError,
+        spec: specWithFixed,
+      };
+    }
+
+    const nextSpec = nextSpecCandidate as Record<string, unknown>;
+    const done = isSpecComplete(nextSpecCandidate as SpecDraft);
+    const nextQuestion = done
+      ? "Spec looks complete. You can generate the activity."
+      : getNextQuestion(nextSpecCandidate as SpecDraft);
+
+    const summaryPrefix =
+      interpreted.summaryLines.length >= 2
+        ? `Got it: ${interpreted.summaryLines.join("; ")}\n\n`
+        : "";
+    const assistantText = `${summaryPrefix}${nextQuestion}`;
+
+    sessionDb.updateSpecJson(sessionId, JSON.stringify(nextSpec));
+
+    sessionMessageDb.create(
+      crypto.randomUUID(),
+      sessionId,
+      "assistant",
+      assistantText
+    );
+
+    persistCollectorState(sessionId, {
+      currentQuestionKey: nextSlotKey(nextSpecCandidate as SpecDraft),
+      buffer: [],
+    });
+
+    const patch: JsonPatchOp[] = [...fixed, ...interpreted.patch];
+
+    if (!done) {
+      const target: SessionState = "CLARIFYING";
+      transitionOrThrow(state, target);
+      sessionDb.updateState(sessionId, target);
+
+      return {
+        accepted: true,
+        state: target,
+        nextQuestion: assistantText,
+        done: false,
+        spec: nextSpec,
+        patch,
+      };
+    }
+
+    // done === true
+    if (state === "DRAFT") {
+      transitionOrThrow("DRAFT", "CLARIFYING");
+      sessionDb.updateState(sessionId, "CLARIFYING");
+      transitionOrThrow("CLARIFYING", "READY");
+      sessionDb.updateState(sessionId, "READY");
+    } else {
+      transitionOrThrow(state, "READY");
+      sessionDb.updateState(sessionId, "READY");
+    }
+
+    return {
+      accepted: true,
+      state: "READY",
+      nextQuestion: assistantText,
+      done: true,
+      spec: nextSpec,
+      patch,
+    };
+  }
+
+  // Legacy deterministic step (single-slot parsing).
+  // Note: pass the persisted spec so the returned patch reflects the actual mutation (includes fixed fields).
   const result: SpecBuilderResult = specBuilderStep(currentSpec as any, combined);
 
   if (!result.accepted) {
@@ -181,7 +308,7 @@ export function processSessionMessage(sessionId: string, message: string): Proce
       nextQuestion,
       done: false,
       error,
-      spec: currentSpec,
+      spec: specWithFixed,
     };
   }
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const CODEMM_SPEC_VERSION = "1.0" as const;
+export const CODEMM_DEFAULT_CONSTRAINTS = "Java 17, JUnit 5, no package declarations." as const;
 
 export const ActivityLanguageSchema = z.enum(["java"]);
 export type ActivityLanguage = z.infer<typeof ActivityLanguageSchema>;
@@ -99,7 +100,7 @@ export function createEmptyActivitySpec(): ActivitySpec {
     ],
     topic_tags: ["oop"],
     problem_style: "stdout",
-    constraints: "Java 17, JUnit 5, no package declarations.",
+    constraints: CODEMM_DEFAULT_CONSTRAINTS,
     test_case_count: 8,
   };
 }

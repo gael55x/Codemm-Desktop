@@ -1,5 +1,6 @@
 import { z } from "zod";
 export declare const CODEMM_SPEC_VERSION: "1.0";
+export declare const CODEMM_DEFAULT_CONSTRAINTS: "Java 17, JUnit 5, no package declarations.";
 export declare const ActivityLanguageSchema: z.ZodEnum<["java"]>;
 export type ActivityLanguage = z.infer<typeof ActivityLanguageSchema>;
 export declare const DifficultySchema: z.ZodEnum<["easy", "medium", "hard"]>;
