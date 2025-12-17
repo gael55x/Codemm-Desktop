@@ -19,7 +19,7 @@ sessionsRouter.post("/", (req, res) => {
   }
 });
 
-sessionsRouter.post("/:id/messages", (req, res) => {
+sessionsRouter.post("/:id/messages", async (req, res) => {
   try {
     const id = req.params.id as string;
     const { message } = req.body ?? {};
@@ -28,7 +28,7 @@ sessionsRouter.post("/:id/messages", (req, res) => {
       return res.status(400).json({ error: "message is required string." });
     }
 
-    const result = processSessionMessage(id, message.trim());
+    const result = await processSessionMessage(id, message.trim());
 
     if (!result.accepted) {
       return res.status(200).json({

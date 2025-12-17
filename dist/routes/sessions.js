@@ -15,14 +15,14 @@ exports.sessionsRouter.post("/", (req, res) => {
         res.status(500).json({ error: "Failed to create session." });
     }
 });
-exports.sessionsRouter.post("/:id/messages", (req, res) => {
+exports.sessionsRouter.post("/:id/messages", async (req, res) => {
     try {
         const id = req.params.id;
         const { message } = req.body ?? {};
         if (typeof message !== "string" || !message.trim()) {
             return res.status(400).json({ error: "message is required string." });
         }
-        const result = (0, sessionService_1.processSessionMessage)(id, message.trim());
+        const result = await (0, sessionService_1.processSessionMessage)(id, message.trim());
         if (!result.accepted) {
             return res.status(200).json({
                 accepted: false,

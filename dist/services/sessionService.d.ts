@@ -36,7 +36,7 @@ export type ProcessMessageResponse = {
     spec: Record<string, unknown>;
     patch: JsonPatchOp[];
 };
-export declare function processSessionMessage(sessionId: string, message: string): ProcessMessageResponse;
+export declare function processSessionMessage(sessionId: string, message: string): Promise<ProcessMessageResponse>;
 export type GenerateFromSessionResponse = {
     activityId: string;
     problems: GeneratedProblem[];

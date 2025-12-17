@@ -19,6 +19,8 @@ const generation_1 = require("../generation");
 const validators_1 = require("../specBuilder/validators");
 const intentInterpreter_1 = require("../intentInterpreter");
 const trace_1 = require("../utils/trace");
+const intentResolver_1 = require("../agent/intentResolver");
+const specAnalysis_1 = require("../agent/specAnalysis");
 function requireSession(id) {
     const session = database_1.sessionDb.findById(id);
     if (!session) {
@@ -103,7 +105,7 @@ function getSession(id) {
         collector,
     };
 }
-function processSessionMessage(sessionId, message) {
+async function processSessionMessage(sessionId, message) {
     const s = requireSession(sessionId);
     const state = s.state;
     (0, trace_1.trace)("session.message.start", { sessionId, state });
@@ -125,6 +127,79 @@ function processSessionMessage(sessionId, message) {
     const fixed = (0, validators_1.ensureFixedFields)(currentSpec);
     const specWithFixed = fixed.length > 0 ? (0, patch_1.applyJsonPatch)(currentSpec, fixed) : currentSpec;
     (0, trace_1.trace)("session.spec.fixed", { sessionId, fixedOps: fixed.map((op) => op.path) });
+    // Optional dynamic intent resolver (LLM) — can be enabled without removing the compiler fallback.
+    // This is the first step toward a goal-driven agent loop:
+    // - LLM proposes a safe partial patch + confidence
+    // - We still enforce strict draft validation before applying
+    // - If it can't infer, we fall back to deterministic systems
+    if (process.env.CODEMM_AGENT_MODE === "dynamic") {
+        const resolved = await (0, intentResolver_1.resolveIntentWithLLM)({
+            userMessage: combined,
+            currentSpec: specWithFixed,
+        }).catch((e) => ({ kind: "error", error: e?.message ?? String(e) }));
+        if (resolved.kind === "clarify") {
+            database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "assistant", resolved.question);
+            database_1.sessionDb.updateSpecJson(sessionId, JSON.stringify(specWithFixed));
+            persistCollectorState(sessionId, {
+                currentQuestionKey: (0, intent_1.nextSlotKey)(specWithFixed),
+                buffer: [],
+            });
+            const target = "CLARIFYING";
+            transitionOrThrow(state, target);
+            database_1.sessionDb.updateState(sessionId, target);
+            return {
+                accepted: true,
+                state: target,
+                nextQuestion: resolved.question,
+                done: false,
+                spec: specWithFixed,
+                patch: fixed,
+            };
+        }
+        if (resolved.kind === "patch") {
+            const nextSpec = resolved.merged;
+            database_1.sessionDb.updateSpecJson(sessionId, JSON.stringify(nextSpec));
+            const gaps = (0, specAnalysis_1.analyzeSpecGaps)(resolved.merged);
+            const done = gaps.complete;
+            const nextQuestion = (0, specAnalysis_1.defaultNextQuestionFromGaps)(gaps);
+            database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "assistant", nextQuestion);
+            persistCollectorState(sessionId, {
+                currentQuestionKey: (0, intent_1.nextSlotKey)(resolved.merged),
+                buffer: [],
+            });
+            if (!done) {
+                const target = "CLARIFYING";
+                transitionOrThrow(state, target);
+                database_1.sessionDb.updateState(sessionId, target);
+                return {
+                    accepted: true,
+                    state: target,
+                    nextQuestion,
+                    done: false,
+                    spec: nextSpec,
+                    patch: [...fixed, ...resolved.patch],
+                };
+            }
+            if (state === "DRAFT") {
+                transitionOrThrow("DRAFT", "CLARIFYING");
+                database_1.sessionDb.updateState(sessionId, "CLARIFYING");
+                transitionOrThrow("CLARIFYING", "READY");
+                database_1.sessionDb.updateState(sessionId, "READY");
+            }
+            else {
+                transitionOrThrow(state, "READY");
+                database_1.sessionDb.updateState(sessionId, "READY");
+            }
+            return {
+                accepted: true,
+                state: "READY",
+                nextQuestion,
+                done: true,
+                spec: nextSpec,
+                patch: [...fixed, ...resolved.patch],
+            };
+        }
+    }
     const interpreted = (0, intentInterpreter_1.interpretIntent)(specWithFixed, combined);
     (0, trace_1.trace)("session.intent", { sessionId, kind: interpreted.kind });
     if (interpreted.kind === "conflict") {

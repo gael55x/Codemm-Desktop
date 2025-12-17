@@ -12,6 +12,8 @@ import type { SpecDraft } from "../specBuilder/validators";
 import { ensureFixedFields, isSpecComplete, validatePatchedSpecOrError } from "../specBuilder/validators";
 import { interpretIntent } from "../intentInterpreter";
 import { trace, traceText } from "../utils/trace";
+import { resolveIntentWithLLM } from "../agent/intentResolver";
+import { analyzeSpecGaps, defaultNextQuestionFromGaps } from "../agent/specAnalysis";
 
 export type SessionRecord = {
   id: string;
@@ -140,7 +142,10 @@ export type ProcessMessageResponse =
       patch: JsonPatchOp[];
     };
 
-export function processSessionMessage(sessionId: string, message: string): ProcessMessageResponse {
+export async function processSessionMessage(
+  sessionId: string,
+  message: string
+): Promise<ProcessMessageResponse> {
   const s = requireSession(sessionId);
   const state = s.state as SessionState;
   trace("session.message.start", { sessionId, state });
@@ -167,6 +172,89 @@ export function processSessionMessage(sessionId: string, message: string): Proce
   const fixed = ensureFixedFields(currentSpec as SpecDraft);
   const specWithFixed = fixed.length > 0 ? applyJsonPatch(currentSpec as any, fixed) : currentSpec;
   trace("session.spec.fixed", { sessionId, fixedOps: fixed.map((op) => op.path) });
+
+  // Optional dynamic intent resolver (LLM) — can be enabled without removing the compiler fallback.
+  // This is the first step toward a goal-driven agent loop:
+  // - LLM proposes a safe partial patch + confidence
+  // - We still enforce strict draft validation before applying
+  // - If it can't infer, we fall back to deterministic systems
+  if (process.env.CODEMM_AGENT_MODE === "dynamic") {
+    const resolved = await resolveIntentWithLLM({
+      userMessage: combined,
+      currentSpec: specWithFixed as SpecDraft,
+    }).catch((e) => ({ kind: "error" as const, error: e?.message ?? String(e) }));
+
+    if (resolved.kind === "clarify") {
+      sessionMessageDb.create(crypto.randomUUID(), sessionId, "assistant", resolved.question);
+
+      sessionDb.updateSpecJson(sessionId, JSON.stringify(specWithFixed));
+      persistCollectorState(sessionId, {
+        currentQuestionKey: nextSlotKey(specWithFixed as SpecDraft),
+        buffer: [],
+      });
+
+      const target: SessionState = "CLARIFYING";
+      transitionOrThrow(state, target);
+      sessionDb.updateState(sessionId, target);
+
+      return {
+        accepted: true,
+        state: target,
+        nextQuestion: resolved.question,
+        done: false,
+        spec: specWithFixed,
+        patch: fixed,
+      };
+    }
+
+    if (resolved.kind === "patch") {
+      const nextSpec = resolved.merged as Record<string, unknown>;
+      sessionDb.updateSpecJson(sessionId, JSON.stringify(nextSpec));
+
+      const gaps = analyzeSpecGaps(resolved.merged);
+      const done = gaps.complete;
+      const nextQuestion = defaultNextQuestionFromGaps(gaps);
+
+      sessionMessageDb.create(crypto.randomUUID(), sessionId, "assistant", nextQuestion);
+      persistCollectorState(sessionId, {
+        currentQuestionKey: nextSlotKey(resolved.merged),
+        buffer: [],
+      });
+
+      if (!done) {
+        const target: SessionState = "CLARIFYING";
+        transitionOrThrow(state, target);
+        sessionDb.updateState(sessionId, target);
+        return {
+          accepted: true,
+          state: target,
+          nextQuestion,
+          done: false,
+          spec: nextSpec,
+          patch: [...fixed, ...resolved.patch],
+        };
+      }
+
+      if (state === "DRAFT") {
+        transitionOrThrow("DRAFT", "CLARIFYING");
+        sessionDb.updateState(sessionId, "CLARIFYING");
+        transitionOrThrow("CLARIFYING", "READY");
+        sessionDb.updateState(sessionId, "READY");
+      } else {
+        transitionOrThrow(state, "READY");
+        sessionDb.updateState(sessionId, "READY");
+      }
+
+      return {
+        accepted: true,
+        state: "READY",
+        nextQuestion,
+        done: true,
+        spec: nextSpec,
+        patch: [...fixed, ...resolved.patch],
+      };
+    }
+  }
 
   const interpreted = interpretIntent(specWithFixed as SpecDraft, combined);
   trace("session.intent", { sessionId, kind: interpreted.kind });
