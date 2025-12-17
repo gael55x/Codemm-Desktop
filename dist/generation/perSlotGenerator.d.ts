@@ -5,6 +5,12 @@ type RepairContext = {
     judgeStdout?: string;
     judgeStderr?: string;
 };
+export type GeneratedDraftWithMeta = {
+    draft: GeneratedProblemDraft;
+    meta: {
+        llmOutputHash: string;
+    };
+};
 /**
  * Generate a single problem for the given slot via one Codex LLM call.
  *
@@ -17,6 +23,6 @@ type RepairContext = {
  */
 export declare function generateSingleProblem(slot: ProblemSlot, opts?: {
     repair?: RepairContext;
-}): Promise<GeneratedProblemDraft>;
+}): Promise<GeneratedDraftWithMeta>;
 export {};
 //# sourceMappingURL=perSlotGenerator.d.ts.map

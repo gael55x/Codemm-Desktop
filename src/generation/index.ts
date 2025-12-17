@@ -6,6 +6,7 @@ import {
   validateReferenceSolution,
 } from "./referenceSolutionValidator";
 import { trace } from "../utils/trace";
+import { GenerationSlotFailureError, type GenerationFailureKind } from "./errors";
 
 /**
  * Discard reference_solution from GeneratedProblemDraft to produce GeneratedProblem.
@@ -46,6 +47,7 @@ export async function generateProblemsFromPlan(plan: ProblemPlan): Promise<Gener
     let attempts = 0;
     let lastError: Error | null = null;
     let lastDraft: GeneratedProblemDraft | null = null;
+    let lastLlmOutputHash: string | undefined;
     let repair:
       | { previousDraft: GeneratedProblemDraft; judgeStdout?: string; judgeStderr?: string }
       | undefined;
@@ -55,8 +57,10 @@ export async function generateProblemsFromPlan(plan: ProblemPlan): Promise<Gener
       try {
         trace("generation.attempt.start", { slotIndex: slot.index, attempts });
         // Step 1: Generate single problem via LLM (includes reference_solution)
-        const draft: GeneratedProblemDraft = await generateSingleProblem(slot, repair ? { repair } : undefined);
+        const generated = await generateSingleProblem(slot, repair ? { repair } : undefined);
+        const draft: GeneratedProblemDraft = generated.draft;
         lastDraft = draft;
+        lastLlmOutputHash = generated.meta.llmOutputHash;
 
         // Step 2: Validate reference_solution compiles and passes tests (Docker)
         await validateReferenceSolution(draft);
@@ -83,8 +87,17 @@ export async function generateProblemsFromPlan(plan: ProblemPlan): Promise<Gener
         }
 
         if (attempts >= maxAttempts) {
-          throw new Error(
-            `Failed to generate slot ${slot.index} after ${maxAttempts} attempts. Last error: ${err.message}`
+          const kind: GenerationFailureKind =
+            err instanceof ReferenceSolutionValidationError ? err.kind : /Invalid test_suite|schema validation/i.test(String(err?.message)) ? "contract" : "unknown";
+          throw new GenerationSlotFailureError(
+            `Failed to generate slot ${slot.index} after ${maxAttempts} attempts. Last error: ${err.message}`,
+            {
+              slotIndex: slot.index,
+              kind,
+              attempts: maxAttempts,
+              ...(typeof lastDraft?.title === "string" ? { title: lastDraft.title } : {}),
+              ...(typeof lastLlmOutputHash === "string" ? { llmOutputHash: lastLlmOutputHash } : {}),
+            }
           );
         }
         // Retry

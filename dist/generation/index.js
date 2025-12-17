@@ -4,6 +4,7 @@ exports.generateProblemsFromPlan = generateProblemsFromPlan;
 const perSlotGenerator_1 = require("./perSlotGenerator");
 const referenceSolutionValidator_1 = require("./referenceSolutionValidator");
 const trace_1 = require("../utils/trace");
+const errors_1 = require("./errors");
 /**
  * Discard reference_solution from GeneratedProblemDraft to produce GeneratedProblem.
  *
@@ -40,14 +41,17 @@ async function generateProblemsFromPlan(plan) {
         let attempts = 0;
         let lastError = null;
         let lastDraft = null;
+        let lastLlmOutputHash;
         let repair;
         while (!problem && attempts < maxAttempts) {
             attempts++;
             try {
                 (0, trace_1.trace)("generation.attempt.start", { slotIndex: slot.index, attempts });
                 // Step 1: Generate single problem via LLM (includes reference_solution)
-                const draft = await (0, perSlotGenerator_1.generateSingleProblem)(slot, repair ? { repair } : undefined);
+                const generated = await (0, perSlotGenerator_1.generateSingleProblem)(slot, repair ? { repair } : undefined);
+                const draft = generated.draft;
                 lastDraft = draft;
+                lastLlmOutputHash = generated.meta.llmOutputHash;
                 // Step 2: Validate reference_solution compiles and passes tests (Docker)
                 await (0, referenceSolutionValidator_1.validateReferenceSolution)(draft);
                 // Step 3: Discard reference_solution (CRITICAL: do not persist)
@@ -69,7 +73,14 @@ async function generateProblemsFromPlan(plan) {
                     repair = undefined;
                 }
                 if (attempts >= maxAttempts) {
-                    throw new Error(`Failed to generate slot ${slot.index} after ${maxAttempts} attempts. Last error: ${err.message}`);
+                    const kind = err instanceof referenceSolutionValidator_1.ReferenceSolutionValidationError ? err.kind : /Invalid test_suite|schema validation/i.test(String(err?.message)) ? "contract" : "unknown";
+                    throw new errors_1.GenerationSlotFailureError(`Failed to generate slot ${slot.index} after ${maxAttempts} attempts. Last error: ${err.message}`, {
+                        slotIndex: slot.index,
+                        kind,
+                        attempts: maxAttempts,
+                        ...(typeof lastDraft?.title === "string" ? { title: lastDraft.title } : {}),
+                        ...(typeof lastLlmOutputHash === "string" ? { llmOutputHash: lastLlmOutputHash } : {}),
+                    });
                 }
                 // Retry
             }

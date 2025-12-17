@@ -1,12 +1,15 @@
 import type { GeneratedProblemDraft } from "../contracts/problem";
+import type { GenerationFailureKind } from "./errors";
 export declare class ReferenceSolutionValidationError extends Error {
     judgeStdout: string;
     judgeStderr: string;
     exitCode: number | undefined;
+    kind: GenerationFailureKind;
     constructor(message: string, opts: {
         stdout: string;
         stderr: string;
         exitCode?: number;
+        kind: GenerationFailureKind;
     });
 }
 /**

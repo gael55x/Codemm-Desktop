@@ -15,6 +15,9 @@ const trace_1 = require("../utils/trace");
 const CODEX_MODEL = process.env.CODEX_MODEL ?? "gpt-4.1";
 const MAX_TOKENS = 5000;
 const TEMPERATURE = 0.3;
+function sha256(text) {
+    return crypto_1.default.createHash("sha256").update(text).digest("hex");
+}
 function buildRepairPrompt(slot, repair) {
     const previousJson = JSON.stringify(repair.previousDraft, null, 2);
     const stdoutSnippet = (repair.judgeStdout ?? "").slice(0, 1600);
@@ -71,6 +74,7 @@ async function generateSingleProblem(slot, opts) {
     const text = completion.content
         .map((block) => (block.type === "text" ? block.text : ""))
         .join("\n");
+    const llmOutputHash = sha256(text);
     (0, trace_1.traceText)("generation.llm.raw", text, { extra: { slotIndex: slot.index } });
     // Parse JSON (reuse legacy robust parser)
     const parsed = (0, jsonParser_1.tryParseJson)(text);
@@ -156,6 +160,6 @@ async function generateSingleProblem(slot, opts) {
         const firstError = result.error.issues[0];
         throw new Error(`Generated problem for slot ${slot.index} failed schema validation: ${firstError?.message ?? "unknown error"}`);
     }
-    return result.data;
+    return { draft: result.data, meta: { llmOutputHash } };
 }
 //# sourceMappingURL=perSlotGenerator.js.map

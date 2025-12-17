@@ -8,7 +8,7 @@ import { trace } from "./utils/trace";
 function execAsync(
   command: string,
   cwd: string
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+): Promise<{ stdout: string; stderr: string; exitCode: number; timedOut: boolean }> {
   return new Promise((resolve, reject) => {
     exec(
       command,
@@ -20,7 +20,8 @@ function execAsync(
       (error, stdout, stderr) => {
         const exitCode =
           error && typeof (error as any).code === "number" ? (error as any).code : error ? 1 : 0;
-        resolve({ stdout, stderr, exitCode });
+        const timedOut = Boolean((error as any)?.killed) && Boolean((error as any)?.signal);
+        resolve({ stdout, stderr, exitCode, timedOut });
       }
     );
   });
@@ -50,8 +51,8 @@ export async function runJudge(userCode: string, testSuite: string): Promise<Jud
       "codem-java-judge",
     ].join(" ");
 
-    const { stdout, stderr, exitCode } = await execAsync(dockerCmd, tmp);
-    trace("judge.result", { exitCode, stdoutLen: stdout.length, stderrLen: stderr.length });
+    const { stdout, stderr, exitCode, timedOut } = await execAsync(dockerCmd, tmp);
+    trace("judge.result", { exitCode, timedOut, stdoutLen: stdout.length, stderrLen: stderr.length });
 
     const executionTimeMs = Date.now() - start;
 
@@ -64,6 +65,7 @@ export async function runJudge(userCode: string, testSuite: string): Promise<Jud
       stderr,
       executionTimeMs,
       exitCode,
+      timedOut,
     };
   } catch (e: any) {
     const executionTimeMs = Date.now() - start;

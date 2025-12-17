@@ -22,6 +22,8 @@ const trace_1 = require("../utils/trace");
 const intentResolver_1 = require("../agent/intentResolver");
 const readiness_1 = require("../agent/readiness");
 const promptGenerator_1 = require("../agent/promptGenerator");
+const generationFallback_1 = require("../agent/generationFallback");
+const errors_1 = require("../generation/errors");
 function parseJsonObject(json) {
     if (!json)
         return {};
@@ -467,6 +469,27 @@ async function generateFromSession(sessionId, userId) {
         err.status = 409;
         throw err;
     }
+    const existingTrace = parseJsonArray(s.intent_trace_json);
+    const existingConfidence = parseJsonObject(s.confidence_json);
+    const persistTraceEvent = (entry) => {
+        const nextTrace = appendIntentTrace(existingTrace, entry);
+        database_1.sessionDb.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
+        // Mutate local reference so multiple events in this call don't clobber each other.
+        existingTrace.splice(0, existingTrace.length, ...nextTrace);
+    };
+    const persistConfidencePatch = (patch) => {
+        const incoming = {};
+        for (const op of patch) {
+            const key = op.path.startsWith("/") ? op.path.slice(1) : op.path;
+            if (!key)
+                continue;
+            // System-made adjustments are deterministic; mark as high confidence.
+            incoming[key] = 1;
+        }
+        const next = mergeConfidence(existingConfidence, incoming);
+        database_1.sessionDb.updateConfidenceJson(sessionId, JSON.stringify(next));
+        Object.assign(existingConfidence, next);
+    };
     try {
         // Transition to GENERATING (lock)
         transitionOrThrow(state, "GENERATING");
@@ -477,12 +500,69 @@ async function generateFromSession(sessionId, userId) {
         if (!specResult.success) {
             throw new Error(`Invalid ActivitySpec: ${specResult.error.issues[0]?.message ?? "validation failed"}`);
         }
-        const spec = specResult.data;
-        // Derive ProblemPlan
-        const plan = (0, planner_1.deriveProblemPlan)(spec);
-        database_1.sessionDb.setPlanJson(sessionId, JSON.stringify(plan));
-        // Generate problems (per-slot with retries + Docker validation + discard reference_solution)
-        const problems = await (0, generation_1.generateProblemsFromPlan)(plan);
+        let spec = specResult.data;
+        let problems = null;
+        let usedFallback = false;
+        for (let attempt = 0; attempt < 2 && !problems; attempt++) {
+            // Derive ProblemPlan (always from current spec)
+            const plan = (0, planner_1.deriveProblemPlan)(spec);
+            database_1.sessionDb.setPlanJson(sessionId, JSON.stringify(plan));
+            try {
+                // Generate problems (per-slot with retries + Docker validation + discard reference_solution)
+                problems = await (0, generation_1.generateProblemsFromPlan)(plan);
+            }
+            catch (err) {
+                if (err instanceof errors_1.GenerationSlotFailureError) {
+                    persistTraceEvent({
+                        ts: new Date().toISOString(),
+                        type: "generation_failure",
+                        slotIndex: err.slotIndex,
+                        kind: err.kind,
+                        attempts: err.attempts,
+                        title: err.title ?? null,
+                        llmOutputHash: err.llmOutputHash ?? null,
+                        message: err.message,
+                    });
+                    (0, trace_1.trace)("generation.failure.persisted", {
+                        sessionId,
+                        slotIndex: err.slotIndex,
+                        kind: err.kind,
+                        llmOutputHash: err.llmOutputHash,
+                    });
+                    if (!usedFallback) {
+                        const decision = (0, generationFallback_1.proposeGenerationFallback)(spec);
+                        if (decision) {
+                            usedFallback = true;
+                            persistTraceEvent({
+                                ts: new Date().toISOString(),
+                                type: "generation_soft_fallback",
+                                reason: decision.reason,
+                                patch: decision.patch,
+                            });
+                            persistConfidencePatch(decision.patch);
+                            const adjusted = (0, patch_1.applyJsonPatch)(spec, decision.patch);
+                            const adjustedRes = activitySpec_1.ActivitySpecSchema.safeParse(adjusted);
+                            if (!adjustedRes.success) {
+                                persistTraceEvent({
+                                    ts: new Date().toISOString(),
+                                    type: "generation_soft_fallback_failed",
+                                    reason: "fallback patch produced invalid ActivitySpec",
+                                    error: adjustedRes.error.issues[0]?.message ?? "invalid",
+                                });
+                                throw err;
+                            }
+                            spec = adjustedRes.data;
+                            database_1.sessionDb.updateSpecJson(sessionId, JSON.stringify(spec));
+                            continue;
+                        }
+                    }
+                }
+                throw err;
+            }
+        }
+        if (!problems) {
+            throw new Error("Generation failed: problems were not produced.");
+        }
         // Persist problems_json
         database_1.sessionDb.setProblemsJson(sessionId, JSON.stringify(problems));
         // Create Activity record
@@ -494,6 +574,12 @@ async function generateFromSession(sessionId, userId) {
         // Transition to SAVED
         transitionOrThrow("GENERATING", "SAVED");
         database_1.sessionDb.updateState(sessionId, "SAVED");
+        if (usedFallback) {
+            persistTraceEvent({
+                ts: new Date().toISOString(),
+                type: "generation_soft_fallback_succeeded",
+            });
+        }
         return { activityId, problems };
     }
     catch (err) {

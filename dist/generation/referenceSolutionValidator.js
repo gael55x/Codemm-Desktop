@@ -11,6 +11,7 @@ class ReferenceSolutionValidationError extends Error {
         this.judgeStdout = opts.stdout;
         this.judgeStderr = opts.stderr;
         this.exitCode = opts.exitCode;
+        this.kind = opts.kind;
     }
 }
 exports.ReferenceSolutionValidationError = ReferenceSolutionValidationError;
@@ -33,6 +34,14 @@ async function validateReferenceSolution(draft) {
     const stdoutLower = (result.stdout || "").toLowerCase();
     const stderrLower = (result.stderr || "").toLowerCase();
     const combinedLower = `${stdoutLower}\n${stderrLower}`;
+    if (result.timedOut) {
+        throw new ReferenceSolutionValidationError(`Reference solution timed out for "${draft.title}".`, {
+            stdout: result.stdout,
+            stderr: result.stderr,
+            ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
+            kind: "timeout",
+        });
+    }
     // Check for compile errors
     const hasCompileError = /\berror:|cannot find symbol|class, interface, or enum expected/.test(combinedLower);
     if (hasCompileError) {
@@ -42,11 +51,10 @@ async function validateReferenceSolution(draft) {
             stdout: result.stdout,
             stderr: result.stderr,
             ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
+            kind: "compile",
         });
     }
     // Check that tests pass
-    // Note: judge.ts currently sets success: !stderr, which may be fragile.
-    // For now, accept success === true as "tests passed".
     if (!result.success) {
         const snippet = `${result.stderr || result.stdout || ""}`.slice(0, 1200);
         const fallback = snippet || `No JUnit output captured (exitCode=${result.exitCode ?? "unknown"}).`;
@@ -54,6 +62,7 @@ async function validateReferenceSolution(draft) {
             stdout: result.stdout,
             stderr: result.stderr,
             ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
+            kind: "tests",
         });
     }
     // Success: reference solution compiles and passes all tests.

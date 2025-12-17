@@ -18,6 +18,15 @@ type RepairContext = {
   judgeStderr?: string;
 };
 
+export type GeneratedDraftWithMeta = {
+  draft: GeneratedProblemDraft;
+  meta: { llmOutputHash: string };
+};
+
+function sha256(text: string): string {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
 function buildRepairPrompt(slot: ProblemSlot, repair: RepairContext): string {
   const previousJson = JSON.stringify(repair.previousDraft, null, 2);
   const stdoutSnippet = (repair.judgeStdout ?? "").slice(0, 1600);
@@ -65,7 +74,7 @@ Return ONLY valid JSON. No markdown. No code fences. No prose.`;
 export async function generateSingleProblem(
   slot: ProblemSlot,
   opts?: { repair?: RepairContext }
-): Promise<GeneratedProblemDraft> {
+): Promise<GeneratedDraftWithMeta> {
   const prompt = opts?.repair ? buildRepairPrompt(slot, opts.repair) : buildSlotPrompt(slot);
   trace("generation.slot.start", { slotIndex: slot.index, difficulty: slot.difficulty, repair: Boolean(opts?.repair) });
   traceText("generation.prompt", prompt, { extra: { slotIndex: slot.index, repair: Boolean(opts?.repair) } });
@@ -81,6 +90,7 @@ export async function generateSingleProblem(
   const text = completion.content
     .map((block) => (block.type === "text" ? block.text : ""))
     .join("\n");
+  const llmOutputHash = sha256(text);
   traceText("generation.llm.raw", text, { extra: { slotIndex: slot.index } });
 
   // Parse JSON (reuse legacy robust parser)
@@ -207,5 +217,5 @@ export async function generateSingleProblem(
     );
   }
 
-  return result.data;
+  return { draft: result.data, meta: { llmOutputHash } };
 }

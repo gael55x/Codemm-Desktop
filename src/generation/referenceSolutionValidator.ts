@@ -1,18 +1,24 @@
 import { runJudge } from "../judge";
 import type { GeneratedProblemDraft } from "../contracts/problem";
 import { traceText } from "../utils/trace";
+import type { GenerationFailureKind } from "./errors";
 
 export class ReferenceSolutionValidationError extends Error {
   judgeStdout: string;
   judgeStderr: string;
   exitCode: number | undefined;
+  kind: GenerationFailureKind;
 
-  constructor(message: string, opts: { stdout: string; stderr: string; exitCode?: number }) {
+  constructor(
+    message: string,
+    opts: { stdout: string; stderr: string; exitCode?: number; kind: GenerationFailureKind }
+  ) {
     super(message);
     this.name = "ReferenceSolutionValidationError";
     this.judgeStdout = opts.stdout;
     this.judgeStderr = opts.stderr;
     this.exitCode = opts.exitCode;
+    this.kind = opts.kind;
   }
 }
 
@@ -37,6 +43,18 @@ export async function validateReferenceSolution(draft: GeneratedProblemDraft): P
   const stderrLower = (result.stderr || "").toLowerCase();
   const combinedLower = `${stdoutLower}\n${stderrLower}`;
 
+  if (result.timedOut) {
+    throw new ReferenceSolutionValidationError(
+      `Reference solution timed out for "${draft.title}".`,
+      {
+        stdout: result.stdout,
+        stderr: result.stderr,
+        ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
+        kind: "timeout",
+      }
+    );
+  }
+
   // Check for compile errors
   const hasCompileError =
     /\berror:|cannot find symbol|class, interface, or enum expected/.test(combinedLower);
@@ -50,13 +68,12 @@ export async function validateReferenceSolution(draft: GeneratedProblemDraft): P
         stdout: result.stdout,
         stderr: result.stderr,
         ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
+        kind: "compile",
       }
     );
   }
 
   // Check that tests pass
-  // Note: judge.ts currently sets success: !stderr, which may be fragile.
-  // For now, accept success === true as "tests passed".
   if (!result.success) {
     const snippet = `${result.stderr || result.stdout || ""}`.slice(0, 1200);
     const fallback = snippet || `No JUnit output captured (exitCode=${result.exitCode ?? "unknown"}).`;
@@ -66,6 +83,7 @@ export async function validateReferenceSolution(draft: GeneratedProblemDraft): P
         stdout: result.stdout,
         stderr: result.stderr,
         ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
+        kind: "tests",
       }
     );
   }

@@ -10,6 +10,7 @@ export interface JudgeResult {
   stderr: string;
   executionTimeMs: number;
   exitCode?: number;
+  timedOut?: boolean;
 }
 
 /**
