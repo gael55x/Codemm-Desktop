@@ -68,25 +68,11 @@ export default function Home() {
     if (!sessionId) return;
 
     const rawInput = chatInput.trim();
-    const allowEmpty = activeSlot?.key === "constraints";
-    if (!allowEmpty && !rawInput) return;
+    if (!rawInput) return;
 
-    // Normalize is a translator, not a validator. If it returns a value, we must send it.
     const normalized = normalizeInput(rawInput);
-    if (!normalized.ok) {
-      const hintContent = [normalized.friendly, ...normalized.hintLines]
-        .filter(Boolean)
-        .join("\n\n");
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", tone: "hint", content: hintContent },
-      ]);
-      return;
-    }
-
-    const userMessage =
-      rawInput ||
-      (activeSlot?.key === "constraints" ? "ok" : normalized.value);
+    if (!normalized.ok) return;
+    const userMessage = rawInput;
 
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setChatInput("");
@@ -100,28 +86,28 @@ export default function Home() {
       });
       const data = await res.json();
 
-      const interpreted = interpretResponse(data);
+      interpretResponse(data);
 
-      if (interpreted.kind === "rejected") {
-        const hintContent = [interpreted.friendly, ...interpreted.hintLines]
-          .filter(Boolean)
-          .join("\n\n");
+      setSessionState(data.state);
+      setSpecReady(data.done === true);
+
+      if (typeof data.nextQuestion === "string" && data.nextQuestion.trim()) {
+        const assistantTone: ChatMessage["tone"] = data.accepted ? "question" : "hint";
+        const assistantContent =
+          data.accepted
+            ? data.nextQuestion
+            : [data.error, data.nextQuestion].filter(Boolean).join("\n\n");
 
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", tone: "hint", content: hintContent },
+          { role: "assistant", tone: assistantTone, content: assistantContent },
         ]);
       } else {
-        setSessionState(data.state);
-        setSpecReady(data.done === true);
-
-        const questionDisplay = formatSlotPrompt(interpreted.nextSlot);
-        if (questionDisplay) {
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", tone: "question", content: questionDisplay },
-          ]);
-        }
+        const fallback = formatSlotPrompt(activeSlot) ?? "Please continue.";
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", tone: "question", content: fallback },
+        ]);
       }
     } catch (e) {
       console.error(e);

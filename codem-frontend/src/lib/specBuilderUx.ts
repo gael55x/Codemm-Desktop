@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { normalizeUserInput } from "./specNormalization";
 
 export type BackendSpecResponse = {
   accepted: boolean;
@@ -14,8 +15,6 @@ export type SpecSlot = {
   key: "language" | "problem_count" | "difficulty_plan" | "topic_tags" | "problem_style" | "constraints";
   intent: string;
   examples?: string[];
-  normalize?: (input: string) => string | null;
-  diagnose?: (backendError: string) => string;
 };
 
 export type NormalizedInputResult =
@@ -26,82 +25,18 @@ export type SpecInteractionResult =
   | { kind: "accepted"; done: boolean; nextSlot: SpecSlot | null }
   | { kind: "rejected"; slot: SpecSlot | null; friendly: string; hintLines: string[] };
 
-const DIFFICULTY_KEYS = ["easy", "medium", "hard"] as const;
-
-const DEFAULT_CONSTRAINTS =
-  "Java 17, JUnit 5, no package declarations. Use standard Codemm constraints.";
-
-function normalizeLanguage(input: string): string | null {
-  const lower = input.toLowerCase();
-  if (lower.includes("java")) {
-    return "java";
-  }
-  return null;
-}
-
-function normalizeProblemCount(input: string): string | null {
-  const matches = input.match(/\d+/g);
-  if (!matches || matches.length === 0) return null;
-  const value = parseInt(matches[0], 10);
-  if (!Number.isFinite(value) || value < 1 || value > 7) return null;
-  return String(value);
-}
-
-function normalizeDifficultyPlan(input: string): string | null {
-  const lower = input.toLowerCase();
-  const counts: Record<string, number> = { easy: 0, medium: 0, hard: 0 };
-
-  for (const match of lower.matchAll(/(easy|medium|hard)\s*[:\-]?\s*(\d+)/g)) {
-    const key = match[1] as typeof DIFFICULTY_KEYS[number];
-    const value = parseInt(match[2], 10);
-    if (Number.isFinite(value)) {
-      counts[key] += value;
-    }
-  }
-
-  for (const match of lower.matchAll(/(\d+)\s*(easy|medium|hard)/g)) {
-    const value = parseInt(match[1], 10);
-    const key = match[2] as typeof DIFFICULTY_KEYS[number];
-    if (Number.isFinite(value)) {
-      counts[key] += value;
-    }
-  }
-
-  const total = counts.easy + counts.medium + counts.hard;
-  if (total === 0) return null;
-
-  return DIFFICULTY_KEYS.map((key) => `${key}:${counts[key]}`).join(", ");
-}
-
-function normalizeTopicTags(input: string): string | null {
-  const tags = input
-    .split(/[,;\n]/)
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .slice(0, 12);
-
-  if (tags.length === 0) return null;
-
-  return tags.join(", ");
-}
-
-function normalizeProblemStyle(input: string): string | null {
-  const lower = input.toLowerCase();
-  if (/(stdout|print|console)/.test(lower)) return "stdout";
-  if (/(return|method|function)/.test(lower)) return "return";
-  if (/(mixed|either|both)/.test(lower)) return "mixed";
-  return null;
-}
-
 function deriveSlotKeyFromQuestion(question?: string | null): SpecSlot["key"] | null {
   const lower = (question ?? "").toLowerCase();
+  const tail = lower.split("\n\n").pop() ?? lower;
   if (!lower.trim()) return null;
-  if (lower.includes("language")) return "language";
-  if (lower.includes("how many problems")) return "problem_count";
-  if (lower.includes("difficulty")) return "difficulty_plan";
-  if (lower.includes("topics")) return "topic_tags";
-  if (lower.includes("problem style")) return "problem_style";
-  if (lower.includes("constraints")) return "constraints";
+  if (tail.includes("language") || tail.includes("java is available")) return "language";
+  if (tail.includes("how many problems") || tail.includes("how many")) return "problem_count";
+  if (tail.includes("how hard") || tail.includes("easy") || tail.includes("medium") || tail.includes("hard"))
+    return "difficulty_plan";
+  if (tail.includes("topics") || tail.includes("tags")) return "topic_tags";
+  if (tail.includes("checked") || tail.includes("stdout") || tail.includes("return") || tail.includes("mixed"))
+    return "problem_style";
+  if (tail.includes("constraints") || tail.includes("java/junit setup")) return "constraints";
   return null;
 }
 
@@ -162,38 +97,31 @@ const SPEC_SLOTS: SpecSlot[] = [
     key: "language",
     intent: "What language do you want to use? (Java is available today.)",
     examples: ["Java"],
-    normalize: normalizeLanguage,
   },
   {
     key: "problem_count",
     intent: "How many problems should we build? (1-7 is okay.)",
     examples: ["3", "5 problems"],
-    normalize: normalizeProblemCount,
   },
   {
     key: "difficulty_plan",
     intent: "How hard should these problems be overall?",
     examples: ["easy:2, medium:2, hard:1", "2 easy, 2 medium, 1 hard"],
-    normalize: normalizeDifficultyPlan,
   },
   {
     key: "topic_tags",
     intent: "What topics should we cover? Share a few tags.",
     examples: ["encapsulation, inheritance, polymorphism"],
-    normalize: normalizeTopicTags,
   },
   {
     key: "problem_style",
     intent: "How should solutions be checked? (stdout, return, or mixed)",
     examples: ["stdout", "return"],
-    normalize: normalizeProblemStyle,
   },
   {
     key: "constraints",
     intent: "I’ll handle the Java/JUnit setup. Anything else you want noted?",
     examples: ["ok", "that's fine", "any"],
-    normalize: () => DEFAULT_CONSTRAINTS,
-    diagnose: () => "I'll keep the default Java/JUnit constraints in place.",
   },
 ];
 
@@ -217,23 +145,16 @@ export function useSpecBuilderUX() {
   const normalizeInput = useCallback(
     (input: string): NormalizedInputResult => {
       const slot = activeSlot;
-      const normalizer = slot.normalize;
-      if (!normalizer) {
-        return { ok: true, value: input.trim(), slot };
+      const { normalized } = normalizeUserInput(input);
+      if (!normalized.trim()) {
+        return {
+          ok: false,
+          slot,
+          friendly: "Type an answer to continue.",
+          hintLines: [],
+        };
       }
-
-      const normalized = normalizer(input.trim());
-      if (normalized) {
-        return { ok: true, value: normalized, slot };
-      }
-
-      const { friendly, hints } = humanizeSpecError("", slot);
-      return {
-        ok: false,
-        slot,
-        friendly,
-        hintLines: hints,
-      };
+      return { ok: true, value: normalized, slot };
     },
     [activeSlot]
   );
