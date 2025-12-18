@@ -24,6 +24,7 @@ Test suite requirements:
 - Test class name must match the tested class name + "Test"
 - Tests must assert real behavior (no assertTrue(true) placeholders)
 - Use assertEquals/assertTrue/assertFalse/assertThrows with meaningful expectations
+- Avoid brittle whitespace expectations (do not assertEquals against string literals with leading/trailing spaces).
 
 Reference solution requirements (legacy):
 - reference_solution must compile and pass all tests
@@ -79,6 +80,7 @@ Critical rules:
 - workspace.files must include exactly 2 files: Main.java + one target class file
 - test_suite MUST test the target class (NOT Main)
 - reference_workspace must be a complete, working solution workspace that passes all tests
+- Avoid whitespace-padding edge cases unless you explicitly define normalization; do not assertEquals against string literals with leading/trailing spaces.
 - All Java code must have NO package declarations
 - Test class must import org.junit.jupiter.api.Test and static org.junit.jupiter.api.Assertions.*
 
@@ -111,6 +113,7 @@ Critical rules:
 - test_suite must have exactly 8 @Test methods
 - reference_solution must be a complete, working solution that passes all tests
 - starter_code should be the same class with method signatures but TODOs instead of implementation
+- Avoid whitespace-padding edge cases unless you explicitly define normalization; do not assertEquals against string literals with leading/trailing spaces.
 - All Java code must have NO package declarations
 - Test class must import org.junit.jupiter.api.Test and static org.junit.jupiter.api.Assertions.*
 

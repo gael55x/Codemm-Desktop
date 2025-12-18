@@ -79,6 +79,7 @@ Hard structure rules (do not violate):
 - If using workspace fields: workspace + reference_workspace must be valid Java 17 with no package declarations, and reference_workspace must include the same file paths as workspace.
 - Each Java file must not declare more than one public class.
 - Keep exactly 8 @Test methods.
+- Avoid brittle whitespace expectations like assertEquals(" Bob  White ", ...) unless the problem explicitly specifies whitespace behavior.
 
 Here is your previous output (may be truncated):
 ${rawSnippet || "(not provided)"}
@@ -144,6 +145,9 @@ async function generateSingleProblem(slot, opts) {
             const testSuite = typeof raw.test_suite === "string" && raw.test_suite.trim() ? raw.test_suite.trim() : "";
             if (!(0, javaRules_1.isValidJUnit5TestSuite)(testSuite, 8)) {
                 throw new Error(`Invalid test_suite for slot ${slot.index}: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.`);
+            }
+            if ((0, javaRules_1.hasBrittleWhitespaceStringExpectations)(testSuite)) {
+                throw new Error(`Invalid test_suite for slot ${slot.index}: avoid assertEquals() against string literals with leading/trailing whitespace (brittle).`);
             }
             const target = getWorkspaceTargetFile(raw);
             if (!target || typeof target.path !== "string") {
@@ -244,6 +248,9 @@ async function generateSingleProblem(slot, opts) {
         // Validate test suite structure strictly
         if (!(0, javaRules_1.isValidJUnit5TestSuite)(testSuite, 8)) {
             throw new Error(`Invalid test_suite for slot ${slot.index}: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.`);
+        }
+        if ((0, javaRules_1.hasBrittleWhitespaceStringExpectations)(testSuite)) {
+            throw new Error(`Invalid test_suite for slot ${slot.index}: avoid assertEquals() against string literals with leading/trailing whitespace (brittle).`);
         }
         // Ensure test class name matches starter_code class name + "Test"
         const expectedTestClassName = `${className}Test`;

@@ -4,6 +4,7 @@ exports.JavaSourceNoPackageSchema = void 0;
 exports.countJUnitTests = countJUnitTests;
 exports.hasJUnit5Imports = hasJUnit5Imports;
 exports.hasNonTrivialAssertions = hasNonTrivialAssertions;
+exports.hasBrittleWhitespaceStringExpectations = hasBrittleWhitespaceStringExpectations;
 exports.isValidJUnit5TestSuite = isValidJUnit5TestSuite;
 const zod_1 = require("zod");
 exports.JavaSourceNoPackageSchema = zod_1.z
@@ -35,6 +36,25 @@ function hasNonTrivialAssertions(testSuite) {
         }
         return true;
     });
+}
+/**
+ * Flags brittle tests that assert against string literals with leading/trailing
+ * whitespace (e.g. " Bob  White "). These cases frequently cause generator
+ * instability and aren't useful for v1-style problems.
+ */
+function hasBrittleWhitespaceStringExpectations(testSuite) {
+    // Look at the first argument of assertEquals("...").
+    const re = /\bassertEquals\s*\(\s*"((?:\\.|[^"\\])*)"\s*,/g;
+    let match;
+    while ((match = re.exec(testSuite)) !== null) {
+        const literal = match[1] ?? "";
+        if (!/\S/.test(literal))
+            continue; // ignore all-whitespace strings
+        if (/^\s/.test(literal) || /\s$/.test(literal)) {
+            return true;
+        }
+    }
+    return false;
 }
 function isValidJUnit5TestSuite(testSuite, expectedTestCount) {
     if (!testSuite.trim())

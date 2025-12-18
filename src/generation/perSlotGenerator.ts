@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { createCodexCompletion } from "../infra/llm/codex";
 import { tryParseJson } from "../utils/jsonParser";
 import { buildDefaultClassSkeleton, inferClassName } from "../utils/javaCodegen";
-import { isValidJUnit5TestSuite } from "../contracts/javaRules";
+import { hasBrittleWhitespaceStringExpectations, isValidJUnit5TestSuite } from "../contracts/javaRules";
 import { GeneratedProblemDraftSchema, type GeneratedProblemDraft } from "../contracts/problem";
 import type { ProblemSlot } from "../planner/types";
 import { buildSlotPrompt, getSystemPromptForSlot } from "./prompts";
@@ -96,6 +96,7 @@ Hard structure rules (do not violate):
 - If using workspace fields: workspace + reference_workspace must be valid Java 17 with no package declarations, and reference_workspace must include the same file paths as workspace.
 - Each Java file must not declare more than one public class.
 - Keep exactly 8 @Test methods.
+- Avoid brittle whitespace expectations like assertEquals(" Bob  White ", ...) unless the problem explicitly specifies whitespace behavior.
 
 Here is your previous output (may be truncated):
 ${rawSnippet || "(not provided)"}
@@ -177,6 +178,11 @@ export async function generateSingleProblem(
       if (!isValidJUnit5TestSuite(testSuite, 8)) {
         throw new Error(
           `Invalid test_suite for slot ${slot.index}: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.`
+        );
+      }
+      if (hasBrittleWhitespaceStringExpectations(testSuite)) {
+        throw new Error(
+          `Invalid test_suite for slot ${slot.index}: avoid assertEquals() against string literals with leading/trailing whitespace (brittle).`
         );
       }
 
@@ -312,6 +318,11 @@ export async function generateSingleProblem(
     if (!isValidJUnit5TestSuite(testSuite, 8)) {
       throw new Error(
         `Invalid test_suite for slot ${slot.index}: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.`
+      );
+    }
+    if (hasBrittleWhitespaceStringExpectations(testSuite)) {
+      throw new Error(
+        `Invalid test_suite for slot ${slot.index}: avoid assertEquals() against string literals with leading/trailing whitespace (brittle).`
       );
     }
 

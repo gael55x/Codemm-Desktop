@@ -38,6 +38,25 @@ export function hasNonTrivialAssertions(testSuite: string): boolean {
   });
 }
 
+/**
+ * Flags brittle tests that assert against string literals with leading/trailing
+ * whitespace (e.g. " Bob  White "). These cases frequently cause generator
+ * instability and aren't useful for v1-style problems.
+ */
+export function hasBrittleWhitespaceStringExpectations(testSuite: string): boolean {
+  // Look at the first argument of assertEquals("...").
+  const re = /\bassertEquals\s*\(\s*"((?:\\.|[^"\\])*)"\s*,/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(testSuite)) !== null) {
+    const literal = match[1] ?? "";
+    if (!/\S/.test(literal)) continue; // ignore all-whitespace strings
+    if (/^\s/.test(literal) || /\s$/.test(literal)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function isValidJUnit5TestSuite(testSuite: string, expectedTestCount: number): boolean {
   if (!testSuite.trim()) return false;
   if (/^\s*package\s+/m.test(testSuite)) return false;
