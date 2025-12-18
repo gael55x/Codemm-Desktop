@@ -68,7 +68,10 @@ function parseJUnitTree(stdout: string): { passed: string[]; failed: string[] } 
   const seen = new Set<string>();
 
   for (const line of clean.split(/\r?\n/)) {
-    const m = line.match(/\b([A-Za-z_][A-Za-z0-9_]*)\(\)\s+\[(OK|X)\]\b/);
+    // Example:
+    // |   +-- testFoo() [OK]
+    // |   +-- testBar() [X] expected: <...> but was: <...>
+    const m = line.match(/([A-Za-z_][A-Za-z0-9_]*)\(\)\s+\[(OK|X)\]/);
     if (!m) continue;
     const name = m[1]!;
     const status = m[2]!;
@@ -80,6 +83,14 @@ function parseJUnitTree(stdout: string): { passed: string[]; failed: string[] } 
   }
 
   return { passed, failed };
+}
+
+function parseExpectedActual(message: string): { expected: string; actual: string } | null {
+  // Common JUnit assertion format for assertEquals:
+  // "expected: <0> but was: <-5>"
+  const m = message.match(/expected:\s*<([\s\S]*?)>\s*but\s+was:\s*<([\s\S]*?)>/i);
+  if (!m) return null;
+  return { expected: m[1] ?? "", actual: m[2] ?? "" };
 }
 
 function parseJUnitFailures(stdout: string): Record<string, { message: string; location?: string }> {
@@ -103,6 +114,25 @@ function parseJUnitFailures(stdout: string): Record<string, { message: string; l
   }
 
   return failures;
+}
+
+function normalizeDiagnostics(text: string): string {
+  const clean = stripAnsi(text);
+  const lines = clean.split(/\r?\n/);
+
+  // Hide docker's deprecation warning block; it is not actionable for learners.
+  const filtered: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (line.startsWith("WARNING: Delegated to the 'execute' command.")) {
+      // Skip this line + the next 2 lines which are part of the warning block.
+      i += 2;
+      continue;
+    }
+    filtered.push(line);
+  }
+
+  return filtered.join("\n").trim();
 }
 
 function hasJavaMainMethod(source: string): boolean {
@@ -770,13 +800,31 @@ export default function ActivityPage() {
                       <div className="space-y-2">
                         {failedTests.map((t) => {
                           const info = junitFailures[t];
+                          const parsed = info?.message ? parseExpectedActual(info.message) : null;
                           return (
                             <div key={t} className="rounded-lg border border-rose-200 bg-rose-50 p-2">
                               <div className="font-semibold text-rose-800">✗ {t}</div>
-                              {info?.message && (
-                                <div className="mt-1 font-mono text-[11px] text-rose-900">
-                                  {info.message}
+                              {parsed ? (
+                                <div className="mt-1 grid gap-2 text-[11px] text-rose-900">
+                                  <div>
+                                    <div className="font-semibold">Expected</div>
+                                    <div className="rounded border border-rose-200 bg-white px-2 py-1 font-mono">
+                                      {parsed.expected === "" ? "(empty)" : parsed.expected}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="font-semibold">Your Output</div>
+                                    <div className="rounded border border-rose-200 bg-white px-2 py-1 font-mono">
+                                      {parsed.actual === "" ? "(empty)" : parsed.actual}
+                                    </div>
+                                  </div>
                                 </div>
+                              ) : (
+                                info?.message && (
+                                  <div className="mt-1 font-mono text-[11px] text-rose-900">
+                                    {info.message}
+                                  </div>
+                                )
                               )}
                               {info?.location && (
                                 <div className="mt-1 text-[11px] text-rose-800">
@@ -831,7 +879,7 @@ export default function ActivityPage() {
                         </div>
                       )}
                       <pre className="max-h-[24vh] overflow-auto rounded border border-slate-200 bg-rose-50/60 p-2 font-mono text-[11px] text-rose-800">
-                        {stripAnsi(result.stderr || "") || "(empty)"}
+                        {normalizeDiagnostics(result.stderr || "") || "(empty)"}
                       </pre>
                     </div>
                   )}
@@ -865,7 +913,7 @@ export default function ActivityPage() {
                   <div className="space-y-1">
                     <h3 className="text-xs font-semibold text-slate-900">Diagnostics</h3>
                     <pre className="max-h-[24vh] overflow-auto rounded border border-slate-200 bg-rose-50/60 p-2 font-mono text-[11px] text-rose-800">
-                      {stripAnsi(result.stderr || "") || "(empty)"}
+                      {normalizeDiagnostics(result.stderr || "") || "(empty)"}
                     </pre>
                   </div>
                 )}
