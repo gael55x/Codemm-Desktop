@@ -13,8 +13,12 @@ import { GenerationContractError, GenerationSlotFailureError, type GenerationFai
  *
  * CRITICAL: reference_solution MUST NOT be persisted to the database.
  */
-function discardReferenceSolution(draft: GeneratedProblemDraft): GeneratedProblem {
-  const { reference_solution, ...rest } = draft;
+function discardReferenceArtifacts(draft: GeneratedProblemDraft): GeneratedProblem {
+  if ("reference_solution" in draft) {
+    const { reference_solution, ...rest } = draft;
+    return rest;
+  }
+  const { reference_workspace, ...rest } = draft;
   return rest;
 }
 
@@ -72,7 +76,7 @@ export async function generateProblemsFromPlan(plan: ProblemPlan): Promise<Gener
         await validateReferenceSolution(draft);
 
         // Step 3: Discard reference_solution (CRITICAL: do not persist)
-        problem = discardReferenceSolution(draft);
+        problem = discardReferenceArtifacts(draft);
         trace("generation.attempt.success", { slotIndex: slot.index, attempts, title: draft.title });
       } catch (err: any) {
         lastError = err;

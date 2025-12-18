@@ -1,4 +1,4 @@
-import { runJudge } from "../judge";
+import { runJudge, runJudgeFiles } from "../judge";
 import type { GeneratedProblemDraft } from "../contracts/problem";
 import { traceText } from "../utils/trace";
 import type { GenerationFailureKind } from "./errors";
@@ -35,7 +35,13 @@ export class ReferenceSolutionValidationError extends Error {
  * before persisting the problem.
  */
 export async function validateReferenceSolution(draft: GeneratedProblemDraft): Promise<void> {
-  const result = await runJudge(draft.reference_solution, draft.test_suite);
+  const result =
+    "reference_solution" in draft
+      ? await runJudge(draft.reference_solution, draft.test_suite)
+      : await runJudgeFiles(
+          Object.fromEntries(draft.reference_workspace.files.map((f) => [f.path, f.content])),
+          draft.test_suite
+        );
   traceText("generation.judge.stdout", result.stdout ?? "", { extra: { title: draft.title } });
   traceText("generation.judge.stderr", result.stderr ?? "", { extra: { title: draft.title } });
 

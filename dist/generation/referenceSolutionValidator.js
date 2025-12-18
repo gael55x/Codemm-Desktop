@@ -28,7 +28,9 @@ exports.ReferenceSolutionValidationError = ReferenceSolutionValidationError;
  * before persisting the problem.
  */
 async function validateReferenceSolution(draft) {
-    const result = await (0, judge_1.runJudge)(draft.reference_solution, draft.test_suite);
+    const result = "reference_solution" in draft
+        ? await (0, judge_1.runJudge)(draft.reference_solution, draft.test_suite)
+        : await (0, judge_1.runJudgeFiles)(Object.fromEntries(draft.reference_workspace.files.map((f) => [f.path, f.content])), draft.test_suite);
     (0, trace_1.traceText)("generation.judge.stdout", result.stdout ?? "", { extra: { title: draft.title } });
     (0, trace_1.traceText)("generation.judge.stderr", result.stderr ?? "", { extra: { title: draft.title } });
     const stdoutLower = (result.stdout || "").toLowerCase();

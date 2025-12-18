@@ -7,14 +7,11 @@ import { JavaSourceNoPackageSchema, isValidJUnit5TestSuite } from "./javaRules";
  * NOTE: reference_solution is required at generation time, validated in Docker,
  * then discarded and MUST NOT be persisted.
  */
-export const GeneratedProblemDraftSchema = z
+const CommonProblemFieldsSchema = z
   .object({
     id: z.string().trim().min(1).max(80),
     title: z.string().trim().min(1).max(120),
     description: z.string().trim().min(1).max(8000),
-
-    // Starter code the learner edits.
-    starter_code: JavaSourceNoPackageSchema,
 
     // Exactly 8 tests, non-trivial assertions, JUnit 5 imports, no package.
     test_suite: z
@@ -30,9 +27,6 @@ export const GeneratedProblemDraftSchema = z
         }
       }),
 
-    // Hidden solution used ONLY for validation.
-    reference_solution: JavaSourceNoPackageSchema,
-
     constraints: z.string().trim().min(1).max(2000),
 
     sample_inputs: z.array(z.string()).max(20),
@@ -44,13 +38,52 @@ export const GeneratedProblemDraftSchema = z
   })
   .strict();
 
+const JavaFilenameSchema = z
+  .string()
+  .trim()
+  // Phase A: keep it compatible with current /run and /submit (root-level files only).
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*\.java$/, "Invalid Java file path.");
+
+export const WorkspaceFileSchema = z
+  .object({
+    path: JavaFilenameSchema,
+    role: z.enum(["entry", "support", "readonly"]),
+    // For now, workspace problems are Java-only, so we enforce Java source constraints.
+    content: JavaSourceNoPackageSchema,
+  })
+  .strict();
+
+export const WorkspaceSchema = z
+  .object({
+    files: z.array(WorkspaceFileSchema).min(1).max(20),
+    // For Java: the class name to run via `java <entrypoint>`. Optional for test-only workspaces.
+    entrypoint: z.string().trim().min(1).max(120).optional(),
+  })
+  .strict();
+
+const LegacyDraftSchema = CommonProblemFieldsSchema.extend({
+  // Starter code the learner edits.
+  starter_code: JavaSourceNoPackageSchema,
+  // Hidden solution used ONLY for validation.
+  reference_solution: JavaSourceNoPackageSchema,
+}).strict();
+
+const WorkspaceDraftSchema = CommonProblemFieldsSchema.extend({
+  workspace: WorkspaceSchema,
+  // Hidden solution workspace used ONLY for validation.
+  reference_workspace: WorkspaceSchema,
+}).strict();
+
+export const GeneratedProblemDraftSchema = z.union([LegacyDraftSchema, WorkspaceDraftSchema]);
+
 export type GeneratedProblemDraft = z.infer<typeof GeneratedProblemDraftSchema>;
 
 /**
  * Persisted problem shape (reference_solution intentionally omitted).
  */
-export const GeneratedProblemSchema = GeneratedProblemDraftSchema.omit({
-  reference_solution: true,
-});
+export const GeneratedProblemSchema = z.union([
+  LegacyDraftSchema.omit({ reference_solution: true }),
+  WorkspaceDraftSchema.omit({ reference_workspace: true }),
+]);
 
 export type GeneratedProblem = z.infer<typeof GeneratedProblemSchema>;

@@ -10,8 +10,12 @@ const errors_1 = require("./errors");
  *
  * CRITICAL: reference_solution MUST NOT be persisted to the database.
  */
-function discardReferenceSolution(draft) {
-    const { reference_solution, ...rest } = draft;
+function discardReferenceArtifacts(draft) {
+    if ("reference_solution" in draft) {
+        const { reference_solution, ...rest } = draft;
+        return rest;
+    }
+    const { reference_workspace, ...rest } = draft;
     return rest;
 }
 /**
@@ -55,7 +59,7 @@ async function generateProblemsFromPlan(plan) {
                 // Step 2: Validate reference_solution compiles and passes tests (Docker)
                 await (0, referenceSolutionValidator_1.validateReferenceSolution)(draft);
                 // Step 3: Discard reference_solution (CRITICAL: do not persist)
-                problem = discardReferenceSolution(draft);
+                problem = discardReferenceArtifacts(draft);
                 (0, trace_1.trace)("generation.attempt.success", { slotIndex: slot.index, attempts, title: draft.title });
             }
             catch (err) {
