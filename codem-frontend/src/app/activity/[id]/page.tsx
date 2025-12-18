@@ -43,6 +43,8 @@ type JudgeResult = {
   stdout: string;
   stderr: string;
   executionTimeMs?: number;
+  exitCode?: number;
+  timedOut?: boolean;
 };
 
 type RunResult = {
@@ -251,6 +253,12 @@ export default function ActivityPage() {
     result && "success" in result && result.passedTests.length > 0 ? result.passedTests : junitTree.passed;
   const failedTests =
     result && "success" in result && result.failedTests.length > 0 ? result.failedTests : junitTree.failed;
+  const judgeTimedOut =
+    Boolean(result && "success" in result && (result as JudgeResult).timedOut);
+  const judgeExitCode =
+    result && "success" in result && typeof (result as JudgeResult).exitCode === "number"
+      ? (result as JudgeResult).exitCode
+      : undefined;
 
   async function handleRun() {
     if (!selectedProblem) return;
@@ -379,6 +387,8 @@ export default function ActivityPage() {
             : "",
         executionTimeMs:
           typeof data.executionTimeMs === "number" ? data.executionTimeMs : 0,
+        exitCode: typeof data.exitCode === "number" ? data.exitCode : undefined,
+        timedOut: typeof data.timedOut === "boolean" ? data.timedOut : undefined,
       };
 
       setResult(safeResult);
@@ -713,16 +723,28 @@ export default function ActivityPage() {
 	                <div className="flex flex-wrap items-center gap-3">
                   <span
                     className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                      result.success
+                      judgeTimedOut
+                        ? "bg-amber-50 text-amber-800"
+                        : result.success
                         ? "bg-emerald-50 text-emerald-700"
                         : "bg-rose-50 text-rose-700"
                     }`}
                   >
-                    {result.success
+                    {judgeTimedOut
+                      ? "Test run timed out"
+                      : result.success
                       ? "All tests passed"
-                      : `${failedTests.length || 0} test${(failedTests.length || 0) === 1 ? "" : "s"} failing`}
+                      : failedTests.length > 0
+                      ? `${failedTests.length} test${failedTests.length === 1 ? "" : "s"} failing`
+                      : "Test run failed"}
                   </span>
                 </div>
+                {judgeTimedOut && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                    The judge ran out of time. This can happen if your code hangs (infinite loop) or if Docker is slow to start.
+                    You can increase the backend timeout via <span className="font-mono">JUDGE_TIMEOUT_MS</span>.
+                  </div>
+                )}
                 <div className="space-y-2">
                   <div>
                     <h3 className="mb-1 text-xs font-semibold text-emerald-700">Passing</h3>
@@ -738,7 +760,11 @@ export default function ActivityPage() {
                   <div>
                     <h3 className="mb-1 text-xs font-semibold text-rose-700">Failing</h3>
                     {failedTests.length === 0 && (
-                      <p className="text-xs text-slate-500">None</p>
+                      <p className="text-xs text-slate-500">
+                        {result.success
+                          ? "None"
+                          : "No failing tests were reported. Open details/diagnostics — this usually means a compile error, crash, or timeout."}
+                      </p>
                     )}
                     {failedTests.length > 0 && (
                       <div className="space-y-2">
@@ -789,6 +815,21 @@ export default function ActivityPage() {
                   {showDiagnostics && (
                     <div className="space-y-1">
                       <h3 className="text-xs font-semibold text-slate-900">Diagnostics</h3>
+                      {(judgeExitCode != null || judgeTimedOut) && (
+                        <div className="text-[11px] text-slate-600">
+                          {judgeExitCode != null && (
+                            <>
+                              Exit code: <span className="font-mono">{judgeExitCode}</span>
+                            </>
+                          )}
+                          {judgeTimedOut && (
+                            <>
+                              {judgeExitCode != null ? " · " : ""}
+                              Timed out
+                            </>
+                          )}
+                        </div>
+                      )}
                       <pre className="max-h-[24vh] overflow-auto rounded border border-slate-200 bg-rose-50/60 p-2 font-mono text-[11px] text-rose-800">
                         {stripAnsi(result.stderr || "") || "(empty)"}
                       </pre>
