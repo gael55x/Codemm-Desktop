@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runJudge = runJudge;
+exports.runJudgeFiles = runJudgeFiles;
 const child_process_1 = require("child_process");
 const fs_1 = require("fs");
 const os_1 = require("os");
@@ -48,6 +49,61 @@ async function runJudge(userCode, testSuite) {
         (0, trace_1.trace)("judge.result", { exitCode, timedOut, stdoutLen: stdout.length, stderrLen: stderr.length });
         const executionTimeMs = Date.now() - start;
         // TODO: parse stdout/stderr to determine passed/failed test names.
+        return {
+            success: exitCode === 0,
+            passedTests: [],
+            failedTests: [],
+            stdout,
+            stderr,
+            executionTimeMs,
+            exitCode,
+            timedOut,
+        };
+    }
+    catch (e) {
+        const executionTimeMs = Date.now() - start;
+        return {
+            success: false,
+            passedTests: [],
+            failedTests: [],
+            stdout: e?.stdout ?? "",
+            stderr: e?.stderr ?? String(e?.error ?? e),
+            executionTimeMs,
+        };
+    }
+    finally {
+        (0, fs_1.rmSync)(tmp, { recursive: true, force: true });
+    }
+}
+async function runJudgeFiles(userFiles, testSuite) {
+    const start = Date.now();
+    const tmp = (0, fs_1.mkdtempSync)((0, path_1.join)((0, os_1.tmpdir)(), "codem-judge-"));
+    try {
+        for (const [filename, source] of Object.entries(userFiles)) {
+            (0, fs_1.writeFileSync)((0, path_1.join)(tmp, filename), source, "utf8");
+        }
+        const testClassName = inferClassName(testSuite, "UserTest");
+        const testFilename = `${testClassName}.java`;
+        if (Object.prototype.hasOwnProperty.call(userFiles, testFilename)) {
+            const executionTimeMs = Date.now() - start;
+            return {
+                success: false,
+                passedTests: [],
+                failedTests: [],
+                stdout: "",
+                stderr: `User files include "${testFilename}", which conflicts with the test suite filename.`,
+                executionTimeMs,
+            };
+        }
+        (0, fs_1.writeFileSync)((0, path_1.join)(tmp, testFilename), testSuite, "utf8");
+        const dockerCmd = [
+            "docker run --rm",
+            `-v ${tmp}:/workspace`,
+            "codem-java-judge",
+        ].join(" ");
+        const { stdout, stderr, exitCode, timedOut } = await execAsync(dockerCmd, tmp);
+        (0, trace_1.trace)("judge.result", { exitCode, timedOut, stdoutLen: stdout.length, stderrLen: stderr.length });
+        const executionTimeMs = Date.now() - start;
         return {
             success: exitCode === 0,
             passedTests: [],

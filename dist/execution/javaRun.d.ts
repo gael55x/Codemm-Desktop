@@ -2,6 +2,11 @@ export type RunResult = {
     stdout: string;
     stderr: string;
 };
+export type JavaFiles = Record<string, string>;
+export declare function runJavaFiles(opts: {
+    files: JavaFiles;
+    mainClass?: string;
+}): Promise<RunResult>;
 /**
  * Terminal-style execution: compile + run user code only.
  *

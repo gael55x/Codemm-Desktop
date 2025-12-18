@@ -26,18 +26,53 @@ app.use("/sessions", sessions_1.sessionsRouter);
 // Terminal-style execution: code only, no tests, no persistence, no auth required.
 app.post("/run", async (req, res) => {
     try {
-        const { code, language } = req.body ?? {};
-        if (typeof code !== "string" || !code.trim()) {
-            return res.status(400).json({ error: "code is required string." });
-        }
+        const { code, language, files, mainClass } = req.body ?? {};
         if (language !== "java") {
             return res.status(400).json({ error: "Only 'java' is supported." });
         }
-        // Guard: enforce reasonable code length (basic DoS protection)
-        const maxCodeLength = 50000; // 50KB
-        if (code.length > maxCodeLength) {
+        const maxTotalCodeLength = 200000; // 200KB
+        const maxFileCount = 12;
+        const filenamePattern = /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
+        if (files && typeof files === "object") {
+            const entries = Object.entries(files);
+            if (entries.length === 0) {
+                return res.status(400).json({ error: "files must be a non-empty object." });
+            }
+            if (entries.length > maxFileCount) {
+                return res.status(400).json({ error: `Too many files. Max is ${maxFileCount}.` });
+            }
+            let totalLen = 0;
+            const safeFiles = {};
+            for (const [filename, source] of entries) {
+                if (typeof filename !== "string" || !filenamePattern.test(filename)) {
+                    return res.status(400).json({
+                        error: `Invalid filename "${String(filename)}". Must match ${filenamePattern}.`,
+                    });
+                }
+                if (typeof source !== "string" || !source.trim()) {
+                    return res.status(400).json({ error: `File "${filename}" must be a non-empty string.` });
+                }
+                totalLen += source.length;
+                if (totalLen > maxTotalCodeLength) {
+                    return res.status(400).json({
+                        error: `Total code exceeds maximum length of ${maxTotalCodeLength} characters.`,
+                    });
+                }
+                safeFiles[filename] = source;
+            }
+            const runOpts = { files: safeFiles };
+            if (typeof mainClass === "string" && mainClass.trim()) {
+                runOpts.mainClass = mainClass.trim();
+            }
+            const result = await (0, javaRun_1.runJavaFiles)(runOpts);
+            return res.json({ stdout: result.stdout, stderr: result.stderr });
+        }
+        if (typeof code !== "string" || !code.trim()) {
+            return res.status(400).json({ error: "Provide either code (string) or files (object)." });
+        }
+        if (code.length > maxTotalCodeLength) {
             return res.status(400).json({
-                error: `Code exceeds maximum length of ${maxCodeLength} characters.`,
+                error: `Code exceeds maximum length of ${maxTotalCodeLength} characters.`,
             });
         }
         const result = await (0, javaRun_1.runJavaCodeOnly)(code);
@@ -51,17 +86,60 @@ app.post("/run", async (req, res) => {
 // Graded execution: MUST include test suite (unit tests).
 app.post("/submit", auth_1.optionalAuth, async (req, res) => {
     try {
-        const { code, testSuite, activityId, problemId } = req.body ?? {};
+        const { code, testSuite, activityId, problemId, files } = req.body ?? {};
         // Guard: graded execution requires non-empty code and test suite
-        if (typeof code !== "string" || !code.trim()) {
-            return res.status(400).json({ error: "code is required non-empty string." });
-        }
         if (typeof testSuite !== "string" || !testSuite.trim()) {
             return res.status(400).json({
                 error: "testSuite is required for graded execution. Use /run for code-only execution.",
             });
         }
-        const result = await (0, judge_1.runJudge)(code, testSuite);
+        const maxTotalCodeLength = 200000; // 200KB
+        const maxFileCount = 16;
+        const filenamePattern = /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
+        let result;
+        let codeForPersistence = null;
+        if (files && typeof files === "object") {
+            const entries = Object.entries(files);
+            if (entries.length === 0) {
+                return res.status(400).json({ error: "files must be a non-empty object." });
+            }
+            if (entries.length > maxFileCount) {
+                return res.status(400).json({ error: `Too many files. Max is ${maxFileCount}.` });
+            }
+            let totalLen = testSuite.length;
+            const safeFiles = {};
+            for (const [filename, source] of entries) {
+                if (typeof filename !== "string" || !filenamePattern.test(filename)) {
+                    return res.status(400).json({
+                        error: `Invalid filename "${String(filename)}". Must match ${filenamePattern}.`,
+                    });
+                }
+                if (typeof source !== "string" || !source.trim()) {
+                    return res.status(400).json({ error: `File "${filename}" must be a non-empty string.` });
+                }
+                totalLen += source.length;
+                if (totalLen > maxTotalCodeLength) {
+                    return res.status(400).json({
+                        error: `Total code exceeds maximum length of ${maxTotalCodeLength} characters.`,
+                    });
+                }
+                safeFiles[filename] = source;
+            }
+            result = await (0, judge_1.runJudgeFiles)(safeFiles, testSuite);
+            codeForPersistence = JSON.stringify(safeFiles);
+        }
+        else {
+            if (typeof code !== "string" || !code.trim()) {
+                return res.status(400).json({ error: "code is required non-empty string." });
+            }
+            if (code.length + testSuite.length > maxTotalCodeLength) {
+                return res.status(400).json({
+                    error: `Total code exceeds maximum length of ${maxTotalCodeLength} characters.`,
+                });
+            }
+            result = await (0, judge_1.runJudge)(code, testSuite);
+            codeForPersistence = code;
+        }
         // Save submission to database if user is authenticated and owns the activity/problem
         if (req.user && typeof activityId === "string" && typeof problemId === "string") {
             const dbActivity = database_1.activityDb.findById(activityId);
@@ -71,7 +149,7 @@ app.post("/submit", auth_1.optionalAuth, async (req, res) => {
                     const problemExists = problems.some((p) => p.id === problemId);
                     if (problemExists) {
                         const totalTests = result.passedTests.length + result.failedTests.length;
-                        database_1.submissionDb.create(req.user.id, activityId, problemId, code, result.success, result.passedTests.length, totalTests, result.executionTimeMs);
+                        database_1.submissionDb.create(req.user.id, activityId, problemId, codeForPersistence ?? "", result.success, result.passedTests.length, totalTests, result.executionTimeMs);
                     }
                 }
                 catch (parseErr) {

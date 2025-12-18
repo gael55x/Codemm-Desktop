@@ -40,6 +40,8 @@ function inferClassName(source: string, fallback: string): string {
   return match && match[1] ? match[1] : fallback;
 }
 
+export type JavaFiles = Record<string, string>;
+
 export async function runJudge(userCode: string, testSuite: string): Promise<JudgeResult> {
   const start = Date.now();
   const tmp = mkdtempSync(join(tmpdir(), "codem-judge-"));
@@ -65,6 +67,66 @@ export async function runJudge(userCode: string, testSuite: string): Promise<Jud
     const executionTimeMs = Date.now() - start;
 
     // TODO: parse stdout/stderr to determine passed/failed test names.
+    return {
+      success: exitCode === 0,
+      passedTests: [],
+      failedTests: [],
+      stdout,
+      stderr,
+      executionTimeMs,
+      exitCode,
+      timedOut,
+    };
+  } catch (e: any) {
+    const executionTimeMs = Date.now() - start;
+    return {
+      success: false,
+      passedTests: [],
+      failedTests: [],
+      stdout: e?.stdout ?? "",
+      stderr: e?.stderr ?? String(e?.error ?? e),
+      executionTimeMs,
+    };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+export async function runJudgeFiles(userFiles: JavaFiles, testSuite: string): Promise<JudgeResult> {
+  const start = Date.now();
+  const tmp = mkdtempSync(join(tmpdir(), "codem-judge-"));
+
+  try {
+    for (const [filename, source] of Object.entries(userFiles)) {
+      writeFileSync(join(tmp, filename), source, "utf8");
+    }
+
+    const testClassName = inferClassName(testSuite, "UserTest");
+    const testFilename = `${testClassName}.java`;
+    if (Object.prototype.hasOwnProperty.call(userFiles, testFilename)) {
+      const executionTimeMs = Date.now() - start;
+      return {
+        success: false,
+        passedTests: [],
+        failedTests: [],
+        stdout: "",
+        stderr: `User files include "${testFilename}", which conflicts with the test suite filename.`,
+        executionTimeMs,
+      };
+    }
+
+    writeFileSync(join(tmp, testFilename), testSuite, "utf8");
+
+    const dockerCmd = [
+      "docker run --rm",
+      `-v ${tmp}:/workspace`,
+      "codem-java-judge",
+    ].join(" ");
+
+    const { stdout, stderr, exitCode, timedOut } = await execAsync(dockerCmd, tmp);
+    trace("judge.result", { exitCode, timedOut, stdoutLen: stdout.length, stderrLen: stderr.length });
+
+    const executionTimeMs = Date.now() - start;
     return {
       success: exitCode === 0,
       passedTests: [],
