@@ -29,13 +29,32 @@ function countPublicClasses(source) {
     return Array.from(source.matchAll(/\bpublic\s+(?:abstract\s+)?class\s+[A-Za-z_][A-Za-z0-9_]*\b/g))
         .length;
 }
+function assertJavaFilenameMatchesPublicClass(filename, source) {
+    const publicMatch = source.match(/\bpublic\s+(?:abstract\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
+    if (!publicMatch?.[1])
+        return; // no public class is okay
+    const expected = filename.replace(/\.java$/i, "");
+    if (publicMatch[1] !== expected) {
+        throw new Error(`Public class "${publicMatch[1]}" must match filename "${filename}".`);
+    }
+}
+function getWorkspaceTargetFile(draft) {
+    const files = draft?.workspace?.files;
+    if (!Array.isArray(files) || files.length === 0)
+        return null;
+    const nonEntry = files.find((f) => f && typeof f === "object" && f.role !== "entry");
+    return (nonEntry ?? files[0]);
+}
 function buildRepairPrompt(slot, repair) {
     const previousJson = repair.previousDraft != null ? JSON.stringify(repair.previousDraft, null, 2) : null;
     const stdoutSnippet = (repair.judgeStdout ?? "").slice(0, 1600);
     const stderrSnippet = (repair.judgeStderr ?? "").slice(0, 1600);
     const rawSnippet = (repair.previousRaw ?? "").slice(0, 2400);
     const errorMessage = (repair.errorMessage ?? "").slice(0, 600);
-    return `You previously generated a problem JSON for this slot, but the reference_solution FAILED when executed against the test_suite in Docker/JUnit.
+    const failedArtifact = repair.previousDraft
+        ? ("reference_workspace" in repair.previousDraft ? "reference_workspace" : "reference_solution")
+        : "reference_solution";
+    return `You previously generated a problem JSON for this slot, but the ${failedArtifact} FAILED when executed against the test_suite in Docker/JUnit.
 
 Slot requirements:
 - Difficulty: ${slot.difficulty}
@@ -56,11 +75,9 @@ Error reason:
 ${errorMessage || "(not provided)"}
 
 Hard structure rules (do not violate):
-- starter_code and reference_solution MUST be valid Java 17 with NO package declarations.
-- starter_code MUST NOT declare more than one public class.
-- reference_solution MUST NOT declare more than one public class.
-- test_suite MUST declare class name = (starter_code main class name + "Test").
-- test_suite MUST reference the starter_code main class name.
+- If using legacy fields: starter_code + reference_solution must be valid Java 17 with no package declarations.
+- If using workspace fields: workspace + reference_workspace must be valid Java 17 with no package declarations, and reference_workspace must include the same file paths as workspace.
+- Each Java file must not declare more than one public class.
 - Keep exactly 8 @Test methods.
 
 Here is your previous output (may be truncated):
@@ -72,7 +89,7 @@ ${previousJson || "(not provided)"}
 Goal:
 - Return corrected JSON with the exact same fields.
 - Prefer keeping id/title/description/starter_code stable.
-- You MAY update test_suite and/or reference_solution, but the final pair MUST compile and MUST pass in Docker/JUnit.
+- You MAY update test_suite and/or the reference solution artifact, but the final pair MUST compile and MUST pass in Docker/JUnit.
 - Keep tests meaningful (no trivial assertions).
 
 Return ONLY valid JSON. No markdown. No code fences. No prose.`;
@@ -116,6 +133,94 @@ async function generateSingleProblem(slot, opts) {
         }
         // Normalize fields (defensive, same pattern as legacy agent)
         const raw = parsed;
+        // Workspace variant (Phase B): accept workspace + reference_workspace.
+        if (raw.workspace && raw.reference_workspace) {
+            const title = typeof raw.title === "string" && raw.title.trim()
+                ? raw.title.trim()
+                : `Problem for ${slot.topics[0] ?? "Java"}`;
+            const description = typeof raw.description === "string" && raw.description.trim()
+                ? raw.description.trim()
+                : `Problem description for ${title}.`;
+            const testSuite = typeof raw.test_suite === "string" && raw.test_suite.trim() ? raw.test_suite.trim() : "";
+            if (!(0, javaRules_1.isValidJUnit5TestSuite)(testSuite, 8)) {
+                throw new Error(`Invalid test_suite for slot ${slot.index}: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.`);
+            }
+            const target = getWorkspaceTargetFile(raw);
+            if (!target || typeof target.path !== "string") {
+                throw new Error("workspace must include at least one file.");
+            }
+            const targetClassName = target.path.replace(/\.java$/i, "");
+            const expectedTestClassName = `${targetClassName}Test`;
+            const actualTestClassName = (0, javaCodegen_1.inferClassName)(testSuite, expectedTestClassName);
+            if (actualTestClassName !== expectedTestClassName) {
+                throw new Error(`Test suite class name "${actualTestClassName}" must match "${expectedTestClassName}".`);
+            }
+            const referencesTarget = new RegExp(`\\b${targetClassName}\\b`).test(testSuite);
+            if (!referencesTarget) {
+                throw new Error(`Test suite for slot ${slot.index} does not reference class "${targetClassName}".`);
+            }
+            // Ensure file constraints: at most one public class per file + filename matches public class.
+            for (const file of raw.workspace.files) {
+                if (!file || typeof file.path !== "string" || typeof file.content !== "string")
+                    continue;
+                if (countPublicClasses(file.content) > 1) {
+                    throw new Error(`File "${file.path}" must not declare more than one public class.`);
+                }
+                assertJavaFilenameMatchesPublicClass(file.path, file.content);
+            }
+            for (const file of raw.reference_workspace.files) {
+                if (!file || typeof file.path !== "string" || typeof file.content !== "string")
+                    continue;
+                if (countPublicClasses(file.content) > 1) {
+                    throw new Error(`File "${file.path}" must not declare more than one public class.`);
+                }
+                assertJavaFilenameMatchesPublicClass(file.path, file.content);
+            }
+            // Ensure reference workspace has same file paths.
+            const studentPaths = new Set(raw.workspace.files.map((f) => String(f.path)));
+            const refPaths = new Set(raw.reference_workspace.files.map((f) => String(f.path)));
+            if (studentPaths.size !== refPaths.size) {
+                throw new Error("reference_workspace must include the same file paths as workspace.");
+            }
+            for (const p of studentPaths) {
+                if (!refPaths.has(p)) {
+                    throw new Error("reference_workspace must include the same file paths as workspace.");
+                }
+            }
+            const constraints = typeof raw.constraints === "string" && raw.constraints.trim()
+                ? raw.constraints.trim()
+                : slot.constraints;
+            const sampleInputs = Array.isArray(raw.sample_inputs)
+                ? raw.sample_inputs
+                : [];
+            const sampleOutputs = Array.isArray(raw.sample_outputs)
+                ? raw.sample_outputs
+                : [];
+            const difficulty = slot.difficulty;
+            const topicTag = slot.topics[0] ?? "oop";
+            const draft = {
+                id: typeof raw.id === "string" && raw.id.trim()
+                    ? raw.id.trim()
+                    : crypto_1.default.randomUUID(),
+                title,
+                description,
+                workspace: raw.workspace,
+                reference_workspace: raw.reference_workspace,
+                test_suite: testSuite,
+                constraints,
+                sample_inputs: sampleInputs,
+                sample_outputs: sampleOutputs,
+                difficulty,
+                topic_tag: topicTag,
+            };
+            const result = problem_1.GeneratedProblemDraftSchema.safeParse(draft);
+            if (!result.success) {
+                const firstError = result.error.issues[0];
+                throw new Error(`Generated problem for slot ${slot.index} failed schema validation: ${firstError?.message ?? "unknown error"}`);
+            }
+            (0, trace_1.trace)("generation.draft.meta", { slotIndex: slot.index, title, className: targetClassName, difficulty, topicTag });
+            return { draft: result.data, meta: { llmOutputHash } };
+        }
         const baseId = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : crypto_1.default.randomUUID();
         const title = typeof raw.title === "string" && raw.title.trim()
             ? raw.title.trim()

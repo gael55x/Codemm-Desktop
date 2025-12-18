@@ -1,1 +1,1 @@
-{"version":3,"file":"javaPrompts.d.ts","sourceRoot":"","sources":["../../src/languages/javaPrompts.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,WAAW,EAAE,MAAM,kBAAkB,CAAC;AAEpD,eAAO,MAAM,+BAA+B,q2CAmC3C,CAAC;AAEF,wBAAgB,mBAAmB,CAAC,IAAI,EAAE,WAAW,GAAG,MAAM,CAiC7D"}
+{"version":3,"file":"javaPrompts.d.ts","sourceRoot":"","sources":["../../src/languages/javaPrompts.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,WAAW,EAAE,MAAM,kBAAkB,CAAC;AASpD,eAAO,MAAM,+BAA+B,spCA0B3C,CAAC;AAEF,wBAAgB,mBAAmB,CAAC,IAAI,EAAE,WAAW,GAAG,MAAM,CAgF7D"}
