@@ -8,6 +8,7 @@ import type { ProblemSlot } from "../planner/types";
 import { buildSlotPrompt, getSystemPromptForSlot } from "./prompts";
 import { trace, traceText } from "../utils/trace";
 import { GenerationContractError } from "./errors";
+import { getTopLevelPublicTypeNames } from "../utils/javaSource";
 
 const CODEX_MODEL = process.env.CODEX_MODEL ?? "gpt-4.1";
 const MAX_TOKENS = 5000;
@@ -31,24 +32,17 @@ function sha256(text: string): string {
 }
 
 function inferPrimaryClassName(starterCode: string, fallback: string): string {
-  const publicMatch = starterCode.match(
-    /\bpublic\s+(?:abstract\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\b/
-  );
-  if (publicMatch?.[1]) return publicMatch[1];
+  const topLevelPublic = getTopLevelPublicTypeNames(starterCode)[0];
+  if (topLevelPublic) return topLevelPublic;
   return inferClassName(starterCode, fallback);
 }
 
-function countPublicClasses(source: string): number {
-  return Array.from(source.matchAll(/\bpublic\s+(?:abstract\s+)?class\s+[A-Za-z_][A-Za-z0-9_]*\b/g))
-    .length;
-}
-
 function assertJavaFilenameMatchesPublicClass(filename: string, source: string) {
-  const publicMatch = source.match(/\bpublic\s+(?:abstract\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
-  if (!publicMatch?.[1]) return; // no public class is okay
+  const publicType = getTopLevelPublicTypeNames(source)[0];
+  if (!publicType) return; // no public top-level type is okay
   const expected = filename.replace(/\.java$/i, "");
-  if (publicMatch[1] !== expected) {
-    throw new Error(`Public class "${publicMatch[1]}" must match filename "${filename}".`);
+  if (publicType !== expected) {
+    throw new Error(`Public type "${publicType}" must match filename "${filename}".`);
   }
 }
 
@@ -210,16 +204,16 @@ export async function generateSingleProblem(
       // Ensure file constraints: at most one public class per file + filename matches public class.
       for (const file of raw.workspace.files as any[]) {
         if (!file || typeof file.path !== "string" || typeof file.content !== "string") continue;
-        if (countPublicClasses(file.content) > 1) {
-          throw new Error(`File "${file.path}" must not declare more than one public class.`);
+        if (getTopLevelPublicTypeNames(file.content).length > 1) {
+          throw new Error(`File "${file.path}" must not declare more than one top-level public type.`);
         }
         assertJavaFilenameMatchesPublicClass(file.path, file.content);
       }
 
       for (const file of raw.reference_workspace.files as any[]) {
         if (!file || typeof file.path !== "string" || typeof file.content !== "string") continue;
-        if (countPublicClasses(file.content) > 1) {
-          throw new Error(`File "${file.path}" must not declare more than one public class.`);
+        if (getTopLevelPublicTypeNames(file.content).length > 1) {
+          throw new Error(`File "${file.path}" must not declare more than one top-level public type.`);
         }
         assertJavaFilenameMatchesPublicClass(file.path, file.content);
       }
@@ -297,9 +291,9 @@ export async function generateSingleProblem(
     let starterCode =
       typeof raw.starter_code === "string" && raw.starter_code.trim() ? raw.starter_code.trim() : "";
 
-    const publicStarterCount = countPublicClasses(starterCode);
-    if (publicStarterCount > 1) {
-      throw new Error("starter_code must not declare more than one public class.");
+    const starterPublicTypes = getTopLevelPublicTypeNames(starterCode);
+    if (starterPublicTypes.length > 1) {
+      throw new Error("starter_code must not declare more than one top-level public type.");
     }
 
     // Infer class name from starter_code (prefer public class name)
@@ -352,9 +346,9 @@ export async function generateSingleProblem(
       throw new Error(`Missing reference_solution for slot ${slot.index}.`);
     }
 
-    const publicRefCount = countPublicClasses(referenceSolution);
-    if (publicRefCount > 1) {
-      throw new Error("reference_solution must not declare more than one public class.");
+    const refPublicTypes = getTopLevelPublicTypeNames(referenceSolution);
+    if (refPublicTypes.length > 1) {
+      throw new Error("reference_solution must not declare more than one top-level public type.");
     }
 
     // Ensure reference solution has no package

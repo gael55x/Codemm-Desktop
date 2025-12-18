@@ -28,10 +28,12 @@ Test suite requirements:
 
 Reference solution requirements (legacy):
 - reference_solution must compile and pass all tests
+- starter_code and reference_solution must each declare at most ONE top-level public type (helper types should be non-public).
 
 Reference workspace requirements (workspace):
 - reference_workspace must compile and pass all tests
 - reference_workspace must contain the same file paths as workspace
+- each file must declare at most ONE top-level public type, and if present it must match the filename.
 
 Return ONLY valid JSON. No markdown, no code fences, no prose.
 `;
@@ -81,6 +83,7 @@ Critical rules:
 - test_suite MUST test the target class (NOT Main)
 - reference_workspace must be a complete, working solution workspace that passes all tests
 - Avoid whitespace-padding edge cases unless you explicitly define normalization; do not assertEquals against string literals with leading/trailing spaces.
+- Each .java file must declare at most ONE top-level public type; if present, it must match the filename.
 - All Java code must have NO package declarations
 - Test class must import org.junit.jupiter.api.Test and static org.junit.jupiter.api.Assertions.*
 
@@ -114,6 +117,7 @@ Critical rules:
 - reference_solution must be a complete, working solution that passes all tests
 - starter_code should be the same class with method signatures but TODOs instead of implementation
 - Avoid whitespace-padding edge cases unless you explicitly define normalization; do not assertEquals against string literals with leading/trailing spaces.
+- starter_code and reference_solution must declare at most ONE top-level public type.
 - All Java code must have NO package declarations
 - Test class must import org.junit.jupiter.api.Test and static org.junit.jupiter.api.Assertions.*
 
