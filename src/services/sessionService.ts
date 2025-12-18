@@ -10,6 +10,7 @@ import type { GeneratedProblem } from "../contracts/problem";
 import type { SpecDraft } from "../compiler/specDraft";
 import { ensureFixedFields } from "../compiler/specDraft";
 import { trace, traceText } from "../utils/trace";
+import { withTraceContext } from "../utils/traceContext";
 import { resolveIntentWithLLM } from "../agent/intentResolver";
 import type { IntentResolutionOutput } from "../agent/intentResolver";
 import { computeReadiness, type ConfidenceMap } from "../agent/readiness";
@@ -197,10 +198,11 @@ export async function processSessionMessage(
   sessionId: string,
   message: string
 ): Promise<ProcessMessageResponse> {
-  const s = requireSession(sessionId);
-  const state = s.state as SessionState;
-  trace("session.message.start", { sessionId, state });
-  traceText("session.message.user", message, { extra: { sessionId } });
+  return withTraceContext({ sessionId }, async () => {
+    const s = requireSession(sessionId);
+    const state = s.state as SessionState;
+    trace("session.message.start", { sessionId, state });
+    traceText("session.message.user", message, { extra: { sessionId } });
 
   if (state !== "DRAFT" && state !== "CLARIFYING") {
     const err = new Error(`Cannot post messages when session state is ${state}.`);
@@ -378,14 +380,15 @@ export async function processSessionMessage(
     sessionDb.updateState(sessionId, "READY");
   }
 
-  return {
-    accepted: true,
-    state: "READY",
-    nextQuestion,
-    done: true,
-    spec: specWithFixed,
-    patch: fixed,
-  };
+    return {
+      accepted: true,
+      state: "READY",
+      nextQuestion,
+      done: true,
+      spec: specWithFixed,
+      patch: fixed,
+    };
+  });
 }
 
 export type GenerateFromSessionResponse = {
@@ -415,8 +418,9 @@ export async function generateFromSession(
   sessionId: string,
   userId: number
 ): Promise<GenerateFromSessionResponse> {
-  const s = requireSession(sessionId);
-  const state = s.state as SessionState;
+  return withTraceContext({ sessionId }, async () => {
+    const s = requireSession(sessionId);
+    const state = s.state as SessionState;
 
   if (state !== "READY") {
     const err = new Error(`Cannot generate when session state is ${state}. Expected READY.`);
@@ -454,7 +458,7 @@ export async function generateFromSession(
     Object.assign(existingConfidence, next);
   };
 
-  try {
+    try {
     // Transition to GENERATING (lock)
     transitionOrThrow(state, "GENERATING");
     sessionDb.updateState(sessionId, "GENERATING");
@@ -567,8 +571,8 @@ export async function generateFromSession(
       });
     }
 
-    return { activityId, problems };
-  } catch (err: any) {
+      return { activityId, problems };
+    } catch (err: any) {
     // Transition to FAILED
     try {
       transitionOrThrow("GENERATING", "FAILED");
@@ -578,6 +582,7 @@ export async function generateFromSession(
       console.error("Failed to transition session to FAILED:", transitionErr);
     }
 
-    throw err;
-  }
+      throw err;
+    }
+  });
 }

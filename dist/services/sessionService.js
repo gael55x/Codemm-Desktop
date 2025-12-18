@@ -17,6 +17,7 @@ const planner_1 = require("../planner");
 const generation_1 = require("../generation");
 const specDraft_1 = require("../compiler/specDraft");
 const trace_1 = require("../utils/trace");
+const traceContext_1 = require("../utils/traceContext");
 const intentResolver_1 = require("../agent/intentResolver");
 const readiness_1 = require("../agent/readiness");
 const promptGenerator_1 = require("../agent/promptGenerator");
@@ -153,97 +154,144 @@ function getSession(id) {
     };
 }
 async function processSessionMessage(sessionId, message) {
-    const s = requireSession(sessionId);
-    const state = s.state;
-    (0, trace_1.trace)("session.message.start", { sessionId, state });
-    (0, trace_1.traceText)("session.message.user", message, { extra: { sessionId } });
-    if (state !== "DRAFT" && state !== "CLARIFYING") {
-        const err = new Error(`Cannot post messages when session state is ${state}.`);
-        err.status = 409;
-        throw err;
-    }
-    const currentSpec = parseSpecJson(s.spec_json);
-    const existingConfidence = parseJsonObject(s.confidence_json);
-    // Always persist user message.
-    database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "user", message);
-    const fixed = (0, specDraft_1.ensureFixedFields)(currentSpec);
-    const specWithFixed = fixed.length > 0 ? (0, jsonPatch_1.applyJsonPatch)(currentSpec, fixed) : currentSpec;
-    (0, trace_1.trace)("session.spec.fixed", { sessionId, fixedOps: fixed.map((op) => op.path) });
-    const expectedQuestionKey = (0, questionKey_1.getDynamicQuestionKey)(specWithFixed, existingConfidence);
-    const collector = getCollectorState(sessionId, expectedQuestionKey);
-    const updatedBuffer = [...collector.buffer, message];
-    persistCollectorState(sessionId, { currentQuestionKey: expectedQuestionKey, buffer: updatedBuffer });
-    const combined = updatedBuffer.join(" ").trim();
-    (0, trace_1.traceText)("session.message.combined", combined, { extra: { sessionId, bufferLen: updatedBuffer.length } });
-    const existingTrace = parseJsonArray(s.intent_trace_json);
-    let effectiveConfidence = { ...existingConfidence };
-    const resolved = await (0, intentResolver_1.resolveIntentWithLLM)({
-        userMessage: combined,
-        currentSpec: specWithFixed,
-    }).catch((e) => ({ kind: "error", error: e?.message ?? String(e) }));
-    if ("output" in resolved && resolved.output) {
-        const output = resolved.output;
-        const nextConfidence = mergeConfidence(existingConfidence, output.confidence ?? {});
-        effectiveConfidence = nextConfidence;
-        const nextTrace = appendIntentTrace(existingTrace, {
-            ts: new Date().toISOString(),
+    return (0, traceContext_1.withTraceContext)({ sessionId }, async () => {
+        const s = requireSession(sessionId);
+        const state = s.state;
+        (0, trace_1.trace)("session.message.start", { sessionId, state });
+        (0, trace_1.traceText)("session.message.user", message, { extra: { sessionId } });
+        if (state !== "DRAFT" && state !== "CLARIFYING") {
+            const err = new Error(`Cannot post messages when session state is ${state}.`);
+            err.status = 409;
+            throw err;
+        }
+        const currentSpec = parseSpecJson(s.spec_json);
+        const existingConfidence = parseJsonObject(s.confidence_json);
+        // Always persist user message.
+        database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "user", message);
+        const fixed = (0, specDraft_1.ensureFixedFields)(currentSpec);
+        const specWithFixed = fixed.length > 0 ? (0, jsonPatch_1.applyJsonPatch)(currentSpec, fixed) : currentSpec;
+        (0, trace_1.trace)("session.spec.fixed", { sessionId, fixedOps: fixed.map((op) => op.path) });
+        const expectedQuestionKey = (0, questionKey_1.getDynamicQuestionKey)(specWithFixed, existingConfidence);
+        const collector = getCollectorState(sessionId, expectedQuestionKey);
+        const updatedBuffer = [...collector.buffer, message];
+        persistCollectorState(sessionId, { currentQuestionKey: expectedQuestionKey, buffer: updatedBuffer });
+        const combined = updatedBuffer.join(" ").trim();
+        (0, trace_1.traceText)("session.message.combined", combined, { extra: { sessionId, bufferLen: updatedBuffer.length } });
+        const existingTrace = parseJsonArray(s.intent_trace_json);
+        let effectiveConfidence = { ...existingConfidence };
+        const resolved = await (0, intentResolver_1.resolveIntentWithLLM)({
             userMessage: combined,
-            output,
-            result: resolved.kind,
-        });
-        database_1.sessionDb.updateConfidenceJson(sessionId, JSON.stringify(nextConfidence));
-        database_1.sessionDb.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
-        (0, trace_1.trace)("session.intent.persisted", {
-            sessionId,
-            confidenceKeys: Object.keys(nextConfidence),
-            traceLen: nextTrace.length,
-        });
-    }
-    if (resolved.kind === "clarify") {
-        const assistantText = resolved.question;
-        database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "assistant", assistantText);
-        database_1.sessionDb.updateSpecJson(sessionId, JSON.stringify(specWithFixed));
-        persistCollectorState(sessionId, {
-            currentQuestionKey: (0, questionKey_1.getDynamicQuestionKey)(specWithFixed, effectiveConfidence),
-            buffer: [],
-        });
-        const target = "CLARIFYING";
-        transitionOrThrow(state, target);
-        database_1.sessionDb.updateState(sessionId, target);
-        return {
-            accepted: true,
-            state: target,
-            nextQuestion: assistantText,
-            done: false,
-            spec: specWithFixed,
-            patch: fixed,
-        };
-    }
-    if (resolved.kind === "patch") {
-        const nextSpec = resolved.merged;
-        database_1.sessionDb.updateSpecJson(sessionId, JSON.stringify(nextSpec));
-        const readiness = (0, readiness_1.computeReadiness)(resolved.merged, effectiveConfidence);
-        (0, trace_1.trace)("session.readiness", {
-            sessionId,
-            schemaComplete: readiness.gaps.complete,
-            ready: readiness.ready,
-            minConfidence: readiness.minConfidence,
-            lowConfidenceFields: readiness.lowConfidenceFields,
-            missing: readiness.gaps.missing,
-        });
-        const done = readiness.ready;
+            currentSpec: specWithFixed,
+        }).catch((e) => ({ kind: "error", error: e?.message ?? String(e) }));
+        if ("output" in resolved && resolved.output) {
+            const output = resolved.output;
+            const nextConfidence = mergeConfidence(existingConfidence, output.confidence ?? {});
+            effectiveConfidence = nextConfidence;
+            const nextTrace = appendIntentTrace(existingTrace, {
+                ts: new Date().toISOString(),
+                userMessage: combined,
+                output,
+                result: resolved.kind,
+            });
+            database_1.sessionDb.updateConfidenceJson(sessionId, JSON.stringify(nextConfidence));
+            database_1.sessionDb.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
+            (0, trace_1.trace)("session.intent.persisted", {
+                sessionId,
+                confidenceKeys: Object.keys(nextConfidence),
+                traceLen: nextTrace.length,
+            });
+        }
+        if (resolved.kind === "clarify") {
+            const assistantText = resolved.question;
+            database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "assistant", assistantText);
+            database_1.sessionDb.updateSpecJson(sessionId, JSON.stringify(specWithFixed));
+            persistCollectorState(sessionId, {
+                currentQuestionKey: (0, questionKey_1.getDynamicQuestionKey)(specWithFixed, effectiveConfidence),
+                buffer: [],
+            });
+            const target = "CLARIFYING";
+            transitionOrThrow(state, target);
+            database_1.sessionDb.updateState(sessionId, target);
+            return {
+                accepted: true,
+                state: target,
+                nextQuestion: assistantText,
+                done: false,
+                spec: specWithFixed,
+                patch: fixed,
+            };
+        }
+        if (resolved.kind === "patch") {
+            const nextSpec = resolved.merged;
+            database_1.sessionDb.updateSpecJson(sessionId, JSON.stringify(nextSpec));
+            const readiness = (0, readiness_1.computeReadiness)(resolved.merged, effectiveConfidence);
+            (0, trace_1.trace)("session.readiness", {
+                sessionId,
+                schemaComplete: readiness.gaps.complete,
+                ready: readiness.ready,
+                minConfidence: readiness.minConfidence,
+                lowConfidenceFields: readiness.lowConfidenceFields,
+                missing: readiness.gaps.missing,
+            });
+            const done = readiness.ready;
+            const nextQuestion = (0, promptGenerator_1.generateNextPrompt)({
+                spec: resolved.merged,
+                readiness,
+                confidence: effectiveConfidence,
+                lastUserMessage: combined,
+            });
+            database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "assistant", nextQuestion);
+            persistCollectorState(sessionId, {
+                currentQuestionKey: (0, questionKey_1.getDynamicQuestionKey)(resolved.merged, effectiveConfidence),
+                buffer: [],
+            });
+            if (!done) {
+                const target = "CLARIFYING";
+                transitionOrThrow(state, target);
+                database_1.sessionDb.updateState(sessionId, target);
+                return {
+                    accepted: true,
+                    state: target,
+                    nextQuestion,
+                    done: false,
+                    spec: nextSpec,
+                    patch: [...fixed, ...resolved.patch],
+                };
+            }
+            if (state === "DRAFT") {
+                transitionOrThrow("DRAFT", "CLARIFYING");
+                database_1.sessionDb.updateState(sessionId, "CLARIFYING");
+                transitionOrThrow("CLARIFYING", "READY");
+                database_1.sessionDb.updateState(sessionId, "READY");
+            }
+            else {
+                transitionOrThrow(state, "READY");
+                database_1.sessionDb.updateState(sessionId, "READY");
+            }
+            return {
+                accepted: true,
+                state: "READY",
+                nextQuestion,
+                done: true,
+                spec: nextSpec,
+                patch: [...fixed, ...resolved.patch],
+            };
+        }
+        // LLM returned noop/error: fall back to deterministic "what's missing next" prompt.
+        (0, trace_1.trace)("session.intent.fallback", { sessionId, kind: resolved.kind });
+        const readiness = (0, readiness_1.computeReadiness)(specWithFixed, effectiveConfidence);
         const nextQuestion = (0, promptGenerator_1.generateNextPrompt)({
-            spec: resolved.merged,
+            spec: specWithFixed,
             readiness,
             confidence: effectiveConfidence,
             lastUserMessage: combined,
         });
         database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "assistant", nextQuestion);
         persistCollectorState(sessionId, {
-            currentQuestionKey: (0, questionKey_1.getDynamicQuestionKey)(resolved.merged, effectiveConfidence),
+            currentQuestionKey: (0, questionKey_1.getDynamicQuestionKey)(specWithFixed, effectiveConfidence),
             buffer: [],
         });
-        if (!done) {
+        if (!readiness.ready) {
             const target = "CLARIFYING";
             transitionOrThrow(state, target);
             database_1.sessionDb.updateState(sessionId, target);
@@ -252,8 +300,8 @@ async function processSessionMessage(sessionId, message) {
                 state: target,
                 nextQuestion,
                 done: false,
-                spec: nextSpec,
-                patch: [...fixed, ...resolved.patch],
+                spec: specWithFixed,
+                patch: fixed,
             };
         }
         if (state === "DRAFT") {
@@ -271,55 +319,10 @@ async function processSessionMessage(sessionId, message) {
             state: "READY",
             nextQuestion,
             done: true,
-            spec: nextSpec,
-            patch: [...fixed, ...resolved.patch],
-        };
-    }
-    // LLM returned noop/error: fall back to deterministic "what's missing next" prompt.
-    (0, trace_1.trace)("session.intent.fallback", { sessionId, kind: resolved.kind });
-    const readiness = (0, readiness_1.computeReadiness)(specWithFixed, effectiveConfidence);
-    const nextQuestion = (0, promptGenerator_1.generateNextPrompt)({
-        spec: specWithFixed,
-        readiness,
-        confidence: effectiveConfidence,
-        lastUserMessage: combined,
-    });
-    database_1.sessionMessageDb.create(crypto_1.default.randomUUID(), sessionId, "assistant", nextQuestion);
-    persistCollectorState(sessionId, {
-        currentQuestionKey: (0, questionKey_1.getDynamicQuestionKey)(specWithFixed, effectiveConfidence),
-        buffer: [],
-    });
-    if (!readiness.ready) {
-        const target = "CLARIFYING";
-        transitionOrThrow(state, target);
-        database_1.sessionDb.updateState(sessionId, target);
-        return {
-            accepted: true,
-            state: target,
-            nextQuestion,
-            done: false,
             spec: specWithFixed,
             patch: fixed,
         };
-    }
-    if (state === "DRAFT") {
-        transitionOrThrow("DRAFT", "CLARIFYING");
-        database_1.sessionDb.updateState(sessionId, "CLARIFYING");
-        transitionOrThrow("CLARIFYING", "READY");
-        database_1.sessionDb.updateState(sessionId, "READY");
-    }
-    else {
-        transitionOrThrow(state, "READY");
-        database_1.sessionDb.updateState(sessionId, "READY");
-    }
-    return {
-        accepted: true,
-        state: "READY",
-        nextQuestion,
-        done: true,
-        spec: specWithFixed,
-        patch: fixed,
-    };
+    });
 }
 /**
  * Trigger generation for a READY session.
@@ -340,146 +343,148 @@ async function processSessionMessage(sessionId, message) {
  * - Set last_error
  */
 async function generateFromSession(sessionId, userId) {
-    const s = requireSession(sessionId);
-    const state = s.state;
-    if (state !== "READY") {
-        const err = new Error(`Cannot generate when session state is ${state}. Expected READY.`);
-        err.status = 409;
-        throw err;
-    }
-    // Guard: reject if problems already generated (prevent accidental re-generation)
-    if (s.problems_json && s.problems_json.trim()) {
-        const err = new Error("Session already has generated problems. Cannot re-generate.");
-        err.status = 409;
-        throw err;
-    }
-    const existingTrace = parseJsonArray(s.intent_trace_json);
-    const existingConfidence = parseJsonObject(s.confidence_json);
-    const persistTraceEvent = (entry) => {
-        const nextTrace = appendIntentTrace(existingTrace, entry);
-        database_1.sessionDb.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
-        // Mutate local reference so multiple events in this call don't clobber each other.
-        existingTrace.splice(0, existingTrace.length, ...nextTrace);
-    };
-    const persistConfidencePatch = (patch) => {
-        const incoming = {};
-        for (const op of patch) {
-            const key = op.path.startsWith("/") ? op.path.slice(1) : op.path;
-            if (!key)
-                continue;
-            // System-made adjustments are deterministic; mark as high confidence.
-            incoming[key] = 1;
+    return (0, traceContext_1.withTraceContext)({ sessionId }, async () => {
+        const s = requireSession(sessionId);
+        const state = s.state;
+        if (state !== "READY") {
+            const err = new Error(`Cannot generate when session state is ${state}. Expected READY.`);
+            err.status = 409;
+            throw err;
         }
-        const next = mergeConfidence(existingConfidence, incoming);
-        database_1.sessionDb.updateConfidenceJson(sessionId, JSON.stringify(next));
-        Object.assign(existingConfidence, next);
-    };
-    try {
-        // Transition to GENERATING (lock)
-        transitionOrThrow(state, "GENERATING");
-        database_1.sessionDb.updateState(sessionId, "GENERATING");
-        // Parse and validate ActivitySpec
-        const specObj = parseSpecJson(s.spec_json);
-        const specResult = activitySpec_1.ActivitySpecSchema.safeParse(specObj);
-        if (!specResult.success) {
-            throw new Error(`Invalid ActivitySpec: ${specResult.error.issues[0]?.message ?? "validation failed"}`);
+        // Guard: reject if problems already generated (prevent accidental re-generation)
+        if (s.problems_json && s.problems_json.trim()) {
+            const err = new Error("Session already has generated problems. Cannot re-generate.");
+            err.status = 409;
+            throw err;
         }
-        let spec = specResult.data;
-        if (!(0, profiles_1.isLanguageSupportedForGeneration)(spec.language)) {
-            throw new Error(`Language "${spec.language}" is not supported for generation yet.`);
-        }
-        let problems = null;
-        let usedFallback = false;
-        for (let attempt = 0; attempt < 2 && !problems; attempt++) {
-            // Derive ProblemPlan (always from current spec)
-            const plan = (0, planner_1.deriveProblemPlan)(spec);
-            database_1.sessionDb.setPlanJson(sessionId, JSON.stringify(plan));
-            try {
-                // Generate problems (per-slot with retries + Docker validation + discard reference_solution)
-                problems = await (0, generation_1.generateProblemsFromPlan)(plan);
+        const existingTrace = parseJsonArray(s.intent_trace_json);
+        const existingConfidence = parseJsonObject(s.confidence_json);
+        const persistTraceEvent = (entry) => {
+            const nextTrace = appendIntentTrace(existingTrace, entry);
+            database_1.sessionDb.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
+            // Mutate local reference so multiple events in this call don't clobber each other.
+            existingTrace.splice(0, existingTrace.length, ...nextTrace);
+        };
+        const persistConfidencePatch = (patch) => {
+            const incoming = {};
+            for (const op of patch) {
+                const key = op.path.startsWith("/") ? op.path.slice(1) : op.path;
+                if (!key)
+                    continue;
+                // System-made adjustments are deterministic; mark as high confidence.
+                incoming[key] = 1;
             }
-            catch (err) {
-                if (err instanceof errors_1.GenerationSlotFailureError) {
-                    persistTraceEvent({
-                        ts: new Date().toISOString(),
-                        type: "generation_failure",
-                        slotIndex: err.slotIndex,
-                        kind: err.kind,
-                        attempts: err.attempts,
-                        title: err.title ?? null,
-                        llmOutputHash: err.llmOutputHash ?? null,
-                        message: err.message,
-                    });
-                    (0, trace_1.trace)("generation.failure.persisted", {
-                        sessionId,
-                        slotIndex: err.slotIndex,
-                        kind: err.kind,
-                        llmOutputHash: err.llmOutputHash,
-                    });
-                    if (!usedFallback) {
-                        const decision = (0, generationFallback_1.proposeGenerationFallback)(spec);
-                        if (decision) {
-                            usedFallback = true;
-                            persistTraceEvent({
-                                ts: new Date().toISOString(),
-                                type: "generation_soft_fallback",
-                                reason: decision.reason,
-                                patch: decision.patch,
-                            });
-                            persistConfidencePatch(decision.patch);
-                            const adjusted = (0, jsonPatch_1.applyJsonPatch)(spec, decision.patch);
-                            const adjustedRes = activitySpec_1.ActivitySpecSchema.safeParse(adjusted);
-                            if (!adjustedRes.success) {
+            const next = mergeConfidence(existingConfidence, incoming);
+            database_1.sessionDb.updateConfidenceJson(sessionId, JSON.stringify(next));
+            Object.assign(existingConfidence, next);
+        };
+        try {
+            // Transition to GENERATING (lock)
+            transitionOrThrow(state, "GENERATING");
+            database_1.sessionDb.updateState(sessionId, "GENERATING");
+            // Parse and validate ActivitySpec
+            const specObj = parseSpecJson(s.spec_json);
+            const specResult = activitySpec_1.ActivitySpecSchema.safeParse(specObj);
+            if (!specResult.success) {
+                throw new Error(`Invalid ActivitySpec: ${specResult.error.issues[0]?.message ?? "validation failed"}`);
+            }
+            let spec = specResult.data;
+            if (!(0, profiles_1.isLanguageSupportedForGeneration)(spec.language)) {
+                throw new Error(`Language "${spec.language}" is not supported for generation yet.`);
+            }
+            let problems = null;
+            let usedFallback = false;
+            for (let attempt = 0; attempt < 2 && !problems; attempt++) {
+                // Derive ProblemPlan (always from current spec)
+                const plan = (0, planner_1.deriveProblemPlan)(spec);
+                database_1.sessionDb.setPlanJson(sessionId, JSON.stringify(plan));
+                try {
+                    // Generate problems (per-slot with retries + Docker validation + discard reference_solution)
+                    problems = await (0, generation_1.generateProblemsFromPlan)(plan);
+                }
+                catch (err) {
+                    if (err instanceof errors_1.GenerationSlotFailureError) {
+                        persistTraceEvent({
+                            ts: new Date().toISOString(),
+                            type: "generation_failure",
+                            slotIndex: err.slotIndex,
+                            kind: err.kind,
+                            attempts: err.attempts,
+                            title: err.title ?? null,
+                            llmOutputHash: err.llmOutputHash ?? null,
+                            message: err.message,
+                        });
+                        (0, trace_1.trace)("generation.failure.persisted", {
+                            sessionId,
+                            slotIndex: err.slotIndex,
+                            kind: err.kind,
+                            llmOutputHash: err.llmOutputHash,
+                        });
+                        if (!usedFallback) {
+                            const decision = (0, generationFallback_1.proposeGenerationFallback)(spec);
+                            if (decision) {
+                                usedFallback = true;
                                 persistTraceEvent({
                                     ts: new Date().toISOString(),
-                                    type: "generation_soft_fallback_failed",
-                                    reason: "fallback patch produced invalid ActivitySpec",
-                                    error: adjustedRes.error.issues[0]?.message ?? "invalid",
+                                    type: "generation_soft_fallback",
+                                    reason: decision.reason,
+                                    patch: decision.patch,
                                 });
-                                throw err;
+                                persistConfidencePatch(decision.patch);
+                                const adjusted = (0, jsonPatch_1.applyJsonPatch)(spec, decision.patch);
+                                const adjustedRes = activitySpec_1.ActivitySpecSchema.safeParse(adjusted);
+                                if (!adjustedRes.success) {
+                                    persistTraceEvent({
+                                        ts: new Date().toISOString(),
+                                        type: "generation_soft_fallback_failed",
+                                        reason: "fallback patch produced invalid ActivitySpec",
+                                        error: adjustedRes.error.issues[0]?.message ?? "invalid",
+                                    });
+                                    throw err;
+                                }
+                                spec = adjustedRes.data;
+                                database_1.sessionDb.updateSpecJson(sessionId, JSON.stringify(spec));
+                                continue;
                             }
-                            spec = adjustedRes.data;
-                            database_1.sessionDb.updateSpecJson(sessionId, JSON.stringify(spec));
-                            continue;
                         }
                     }
+                    throw err;
                 }
-                throw err;
             }
+            if (!problems) {
+                throw new Error("Generation failed: problems were not produced.");
+            }
+            // Persist problems_json
+            database_1.sessionDb.setProblemsJson(sessionId, JSON.stringify(problems));
+            // Create Activity record
+            const activityId = crypto_1.default.randomUUID();
+            const activityTitle = `Activity (${spec.problem_count} problems)`;
+            database_1.activityDb.create(activityId, userId, activityTitle, JSON.stringify(problems), undefined);
+            // Link activity to session
+            database_1.sessionDb.setActivityId(sessionId, activityId);
+            // Transition to SAVED
+            transitionOrThrow("GENERATING", "SAVED");
+            database_1.sessionDb.updateState(sessionId, "SAVED");
+            if (usedFallback) {
+                persistTraceEvent({
+                    ts: new Date().toISOString(),
+                    type: "generation_soft_fallback_succeeded",
+                });
+            }
+            return { activityId, problems };
         }
-        if (!problems) {
-            throw new Error("Generation failed: problems were not produced.");
+        catch (err) {
+            // Transition to FAILED
+            try {
+                transitionOrThrow("GENERATING", "FAILED");
+                database_1.sessionDb.updateState(sessionId, "FAILED");
+                database_1.sessionDb.setLastError(sessionId, err.message ?? "Unknown error during generation.");
+            }
+            catch (transitionErr) {
+                console.error("Failed to transition session to FAILED:", transitionErr);
+            }
+            throw err;
         }
-        // Persist problems_json
-        database_1.sessionDb.setProblemsJson(sessionId, JSON.stringify(problems));
-        // Create Activity record
-        const activityId = crypto_1.default.randomUUID();
-        const activityTitle = `Activity (${spec.problem_count} problems)`;
-        database_1.activityDb.create(activityId, userId, activityTitle, JSON.stringify(problems), undefined);
-        // Link activity to session
-        database_1.sessionDb.setActivityId(sessionId, activityId);
-        // Transition to SAVED
-        transitionOrThrow("GENERATING", "SAVED");
-        database_1.sessionDb.updateState(sessionId, "SAVED");
-        if (usedFallback) {
-            persistTraceEvent({
-                ts: new Date().toISOString(),
-                type: "generation_soft_fallback_succeeded",
-            });
-        }
-        return { activityId, problems };
-    }
-    catch (err) {
-        // Transition to FAILED
-        try {
-            transitionOrThrow("GENERATING", "FAILED");
-            database_1.sessionDb.updateState(sessionId, "FAILED");
-            database_1.sessionDb.setLastError(sessionId, err.message ?? "Unknown error during generation.");
-        }
-        catch (transitionErr) {
-            console.error("Failed to transition session to FAILED:", transitionErr);
-        }
-        throw err;
-    }
+    });
 }
 //# sourceMappingURL=sessionService.js.map

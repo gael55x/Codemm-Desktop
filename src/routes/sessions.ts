@@ -6,8 +6,33 @@ import {
   generateFromSession,
 } from "../services/sessionService";
 import { authenticateToken, type AuthRequest } from "../auth";
+import { isTraceEnabled } from "../utils/trace";
+import { subscribeTrace } from "../utils/traceBus";
 
 export const sessionsRouter = Router();
+
+function sanitizeTracePayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const drop = new Set([
+    // Never stream prompts/raw generations/reference code to UI.
+    "text",
+    "rawSnippet",
+    "previousRaw",
+    "previousDraft",
+    "judgeStdout",
+    "judgeStderr",
+  ]);
+
+  const safe: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(payload)) {
+    if (drop.has(k)) continue;
+    if (typeof v === "string" && v.length > 2000) {
+      safe[k] = `${v.slice(0, 2000)}…(truncated)`;
+      continue;
+    }
+    safe[k] = v;
+  }
+  return safe;
+}
 
 sessionsRouter.post("/", (req, res) => {
   try {
@@ -17,6 +42,44 @@ sessionsRouter.post("/", (req, res) => {
     console.error("Error in POST /sessions:", err);
     res.status(500).json({ error: "Failed to create session." });
   }
+});
+
+// Server-sent events stream for UX-friendly progress tracing (no chain-of-thought).
+sessionsRouter.get("/:id/trace", (req, res) => {
+  const id = req.params.id as string;
+
+  if (!isTraceEnabled()) {
+    return res.status(404).json({ error: "Trace stream disabled. Set CODEMM_TRACE=1 on backend." });
+  }
+
+  try {
+    // Ensure session exists.
+    getSession(id);
+  } catch (err: any) {
+    const status = typeof err?.status === "number" ? err.status : 500;
+    return res.status(status).json({ error: status === 404 ? "Session not found." : "Failed to open trace." });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+
+  // Initial event
+  res.write(`event: ready\n`);
+  res.write(`data: ${JSON.stringify({ ts: new Date().toISOString(), event: "trace.ready", sessionId: id })}\n\n`);
+
+  const unsubscribe = subscribeTrace(id, (payload) => {
+    res.write(`data: ${JSON.stringify(sanitizeTracePayload(payload))}\n\n`);
+  });
+
+  const heartbeat = setInterval(() => {
+    res.write(`: ping ${Date.now()}\n\n`);
+  }, 15000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
 });
 
 sessionsRouter.post("/:id/messages", async (req, res) => {
