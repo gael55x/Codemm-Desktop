@@ -30,6 +30,11 @@ export type ExecutionAdapter = {
 export type JudgeAdapter = {
     judge: (req: JudgeRequest) => Promise<JudgeResult>;
 };
+export type SlotPromptContext = {
+    domain?: string;
+    avoidDomains?: string[];
+    avoidTitles?: string[];
+};
 export type LanguageProfile = {
     language: LanguageId;
     displayName: string;
@@ -47,7 +52,7 @@ export type LanguageProfile = {
     judgeAdapter?: JudgeAdapter;
     generator?: {
         systemPrompt: string;
-        buildSlotPrompt: (slot: ProblemSlot) => string;
+        buildSlotPrompt: (slot: ProblemSlot, ctx?: SlotPromptContext) => string;
     };
 };
 //# sourceMappingURL=types.d.ts.map

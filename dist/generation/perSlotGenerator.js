@@ -42,7 +42,7 @@ function getWorkspaceTargetFile(draft) {
     const nonEntry = files.find((f) => f && typeof f === "object" && f.role !== "entry");
     return (nonEntry ?? files[0]);
 }
-function buildRepairPrompt(slot, repair) {
+function buildRepairPrompt(slot, repair, ctx) {
     const previousJson = repair.previousDraft != null ? JSON.stringify(repair.previousDraft, null, 2) : null;
     const stdoutSnippet = (repair.judgeStdout ?? "").slice(0, 1600);
     const stderrSnippet = (repair.judgeStderr ?? "").slice(0, 1600);
@@ -60,6 +60,9 @@ Slot requirements:
 - Constraints: ${slot.constraints}
 - Java 17, no package declarations
 - test_suite must have exactly 8 @Test methods (JUnit 5)
+${ctx?.domain ? `\nScenario seed: ${ctx.domain}\n` : ""}
+${ctx?.avoidDomains?.length ? `Avoid repeating domains: ${ctx.avoidDomains.join(", ")}\n` : ""}
+${ctx?.avoidTitles?.length ? `Avoid reusing titles too similar to: ${ctx.avoidTitles.join(" | ")}\n` : ""}
 
 Failure output (may include the real assertion failure):
 STDOUT:
@@ -108,7 +111,9 @@ async function generateSingleProblem(slot, opts) {
             slotIndex: slot.index,
         });
     }
-    const prompt = opts?.repair ? buildRepairPrompt(slot, opts.repair) : (0, prompts_1.buildSlotPrompt)(slot);
+    const prompt = opts?.repair
+        ? buildRepairPrompt(slot, opts.repair, opts.promptContext)
+        : (0, prompts_1.buildSlotPromptWithContext)(slot, opts?.promptContext);
     (0, trace_1.trace)("generation.slot.start", { slotIndex: slot.index, difficulty: slot.difficulty, repair: Boolean(opts?.repair) });
     (0, trace_1.traceText)("generation.prompt", prompt, { extra: { slotIndex: slot.index, repair: Boolean(opts?.repair) } });
     const completion = await (0, codex_1.createCodexCompletion)({

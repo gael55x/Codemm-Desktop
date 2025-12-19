@@ -34,7 +34,55 @@ async function generateProblemsFromPlan(plan, opts) {
     const problems = [];
     const maxAttempts = 3;
     const onProgress = opts?.onProgress;
+    const usedDomains = [];
+    const usedTitles = [];
+    const DOMAIN_POOL = [
+        "smart home",
+        "music streaming",
+        "food delivery",
+        "event ticketing",
+        "fitness tracking",
+        "space mission control",
+        "hotel booking",
+        "ride sharing",
+        "online marketplace",
+        "photo organizer",
+        "recipe planner",
+        "study planner",
+        "inventory management",
+        "movie recommendations",
+        "package shipping",
+        "language learning",
+        "restaurant reservations",
+        "weather alerts",
+        "customer support",
+        "game matchmaking",
+    ];
+    function hashToIndex(seed, modulo) {
+        // Deterministic, non-crypto hash.
+        let h = 2166136261;
+        for (let i = 0; i < seed.length; i++) {
+            h ^= seed.charCodeAt(i);
+            h = Math.imul(h, 16777619);
+        }
+        return Math.abs(h) % modulo;
+    }
+    function pickDomain(seed) {
+        const start = hashToIndex(seed, DOMAIN_POOL.length);
+        for (let offset = 0; offset < DOMAIN_POOL.length; offset++) {
+            const candidate = DOMAIN_POOL[(start + offset) % DOMAIN_POOL.length];
+            if (!usedDomains.includes(candidate))
+                return candidate;
+        }
+        return DOMAIN_POOL[start];
+    }
     for (const slot of plan) {
+        const domainSeed = pickDomain(`${slot.language}:${slot.difficulty}:${slot.topics.join(",")}:${slot.index}`);
+        const promptContext = {
+            domain: domainSeed,
+            avoidDomains: usedDomains.slice(-4),
+            avoidTitles: usedTitles.slice(-4),
+        };
         onProgress?.({ type: "problem_started", index: slot.index, difficulty: slot.difficulty });
         (0, trace_1.trace)("generation.slot.plan", {
             slotIndex: slot.index,
@@ -42,6 +90,7 @@ async function generateProblemsFromPlan(plan, opts) {
             topics: slot.topics,
             language: slot.language,
             problemStyle: slot.problem_style,
+            domain: domainSeed,
         });
         let problem = null;
         let attempts = 0;
@@ -55,7 +104,10 @@ async function generateProblemsFromPlan(plan, opts) {
                 (0, trace_1.trace)("generation.attempt.start", { slotIndex: slot.index, attempts });
                 onProgress?.({ type: "attempt_started", index: slot.index, attempt: attempts });
                 // Step 1: Generate single problem via LLM (includes reference_solution)
-                const generated = await (0, perSlotGenerator_1.generateSingleProblem)(slot, repair ? { repair } : undefined);
+                const generated = await (0, perSlotGenerator_1.generateSingleProblem)(slot, {
+                    ...(repair ? { repair } : {}),
+                    promptContext,
+                });
                 const draft = generated.draft;
                 lastDraft = draft;
                 lastLlmOutputHash = generated.meta.llmOutputHash;
@@ -119,6 +171,8 @@ async function generateProblemsFromPlan(plan, opts) {
             throw new Error(`Failed to generate slot ${slot.index}. Last error: ${lastError?.message ?? "unknown"}`);
         }
         problems.push(problem);
+        usedDomains.push(domainSeed);
+        usedTitles.push(problem.title);
     }
     return problems;
 }

@@ -5,10 +5,11 @@ import { buildDefaultClassSkeleton, inferClassName } from "../utils/javaCodegen"
 import { hasBrittleWhitespaceStringExpectations, isValidJUnit5TestSuite } from "../contracts/javaRules";
 import { GeneratedProblemDraftSchema, type GeneratedProblemDraft } from "../contracts/problem";
 import type { ProblemSlot } from "../planner/types";
-import { buildSlotPrompt, getSystemPromptForSlot } from "./prompts";
+import { buildSlotPromptWithContext, getSystemPromptForSlot } from "./prompts";
 import { trace, traceText } from "../utils/trace";
 import { GenerationContractError } from "./errors";
 import { getTopLevelPublicTypeNames } from "../utils/javaSource";
+import type { SlotPromptContext } from "../languages/types";
 
 const CODEX_MODEL = process.env.CODEX_MODEL ?? "gpt-4.1";
 const MAX_TOKENS = 5000;
@@ -53,7 +54,7 @@ function getWorkspaceTargetFile(draft: any): { path: string; role: string; conte
   return (nonEntry ?? files[0]) as any;
 }
 
-function buildRepairPrompt(slot: ProblemSlot, repair: RepairContext): string {
+function buildRepairPrompt(slot: ProblemSlot, repair: RepairContext, ctx?: SlotPromptContext): string {
   const previousJson =
     repair.previousDraft != null ? JSON.stringify(repair.previousDraft, null, 2) : null;
   const stdoutSnippet = (repair.judgeStdout ?? "").slice(0, 1600);
@@ -74,6 +75,9 @@ Slot requirements:
 - Constraints: ${slot.constraints}
 - Java 17, no package declarations
 - test_suite must have exactly 8 @Test methods (JUnit 5)
+${ctx?.domain ? `\nScenario seed: ${ctx.domain}\n` : ""}
+${ctx?.avoidDomains?.length ? `Avoid repeating domains: ${ctx.avoidDomains.join(", ")}\n` : ""}
+${ctx?.avoidTitles?.length ? `Avoid reusing titles too similar to: ${ctx.avoidTitles.join(" | ")}\n` : ""}
 
 Failure output (may include the real assertion failure):
 STDOUT:
@@ -119,14 +123,16 @@ Return ONLY valid JSON. No markdown. No code fences. No prose.`;
  */
 export async function generateSingleProblem(
   slot: ProblemSlot,
-  opts?: { repair?: RepairContext }
+  opts?: { repair?: RepairContext; promptContext?: SlotPromptContext }
 ): Promise<GeneratedDraftWithMeta> {
   if (slot.language !== "java") {
     throw new GenerationContractError(`Language "${slot.language}" is not supported for generation yet.`, {
       slotIndex: slot.index,
     });
   }
-  const prompt = opts?.repair ? buildRepairPrompt(slot, opts.repair) : buildSlotPrompt(slot);
+  const prompt = opts?.repair
+    ? buildRepairPrompt(slot, opts.repair, opts.promptContext)
+    : buildSlotPromptWithContext(slot, opts?.promptContext);
   trace("generation.slot.start", { slotIndex: slot.index, difficulty: slot.difficulty, repair: Boolean(opts?.repair) });
   traceText("generation.prompt", prompt, { extra: { slotIndex: slot.index, repair: Boolean(opts?.repair) } });
 

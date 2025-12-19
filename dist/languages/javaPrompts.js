@@ -39,9 +39,51 @@ Reference workspace requirements (workspace):
 
 Return ONLY valid JSON. No markdown, no code fences, no prose.
 `;
-function buildJavaSlotPrompt(slot) {
+function normalizeTopic(raw) {
+    return raw.trim().toLowerCase().replace(/[^a-z0-9\s_-]/g, "");
+}
+function getTopicStructuralRequirements(topics) {
+    const req = [];
+    const add = (...items) => req.push(...items);
+    const has = (needle) => topics.some((t) => normalizeTopic(t).includes(needle));
+    if (has("encapsulation")) {
+        add("Encapsulation: use private fields + public methods; do not expose mutable internals directly.", "Encapsulation: include at least one validation rule (reject invalid state).", "Encapsulation: tests should verify state is protected via method behavior (not direct field access).");
+    }
+    if (has("polymorphism")) {
+        add("Polymorphism: include a base type (interface or abstract class) + at least 2 concrete implementations.", "Polymorphism: tests must exercise dynamic dispatch through the base type reference.", "Polymorphism: implementations must behave meaningfully differently (not just constants).");
+    }
+    if (has("inheritance")) {
+        add("Inheritance: include a base class + subclass that overrides at least one method.", "Inheritance: tests must cover overridden behavior and at least one use of super/base behavior.");
+    }
+    if (has("abstraction") || has("abstract")) {
+        add("Abstraction: include an abstract class or interface with an abstract method contract.", "Abstraction: tests should target behavior via the abstract contract, not concrete-only APIs.");
+    }
+    if (has("composition")) {
+        add("Composition: include a class that owns another object and delegates part of its behavior to it.", "Composition: tests should validate the collaboration between the composed objects.");
+    }
+    if (has("interface") || has("interfaces")) {
+        add("Interfaces: include at least one interface and design code to depend on the interface, not the implementation.");
+    }
+    return Array.from(new Set(req));
+}
+function buildDiversityHint(ctx) {
+    const lines = [];
+    if (ctx?.domain)
+        lines.push(`Scenario domain seed: ${ctx.domain}`);
+    const avoidOverused = ["BankAccount", "Student", "Shape", "Animal", "Vehicle", "Employee", "Car", "Library"];
+    lines.push(`Avoid overused tutorial domains/classes: ${avoidOverused.join(", ")}`);
+    if (ctx?.avoidDomains?.length)
+        lines.push(`Avoid repeating domains: ${ctx.avoidDomains.join(", ")}`);
+    if (ctx?.avoidTitles?.length)
+        lines.push(`Avoid titles too similar to: ${ctx.avoidTitles.join(" | ")}`);
+    return lines.length ? `\nDiversity constraints:\n- ${lines.join("\n- ")}\n` : "";
+}
+function buildJavaSlotPrompt(slot, ctx) {
     const topicsText = slot.topics.join(", ");
     const workspaceMode = shouldGenerateWorkspace(slot);
+    const topicReqs = getTopicStructuralRequirements(slot.topics);
+    const topicReqBlock = topicReqs.length ? `\nTopic structural requirements:\n- ${topicReqs.join("\n- ")}\n` : "";
+    const diversityHint = buildDiversityHint(ctx);
     if (workspaceMode) {
         return `Generate exactly 1 Java problem with the following requirements:
 
@@ -49,6 +91,7 @@ Difficulty: ${slot.difficulty}
 Topics: ${topicsText}
 Problem style: ${slot.problem_style}
 Constraints: ${slot.constraints}
+${diversityHint}${topicReqBlock}
 
 Return a JSON object (not array) with these exact fields:
 {
@@ -95,6 +138,7 @@ Difficulty: ${slot.difficulty}
 Topics: ${topicsText}
 Problem style: ${slot.problem_style}
 Constraints: ${slot.constraints}
+${diversityHint}${topicReqBlock}
 
 Return a JSON object (not array) with these exact fields:
 {

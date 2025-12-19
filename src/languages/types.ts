@@ -20,6 +20,14 @@ export type JudgeAdapter = {
   judge: (req: JudgeRequest) => Promise<JudgeResult>;
 };
 
+export type SlotPromptContext = {
+  // A deterministic scenario seed to encourage variety without randomness.
+  domain?: string;
+  // Soft "don't repeat" nudges across slots in the same generation run.
+  avoidDomains?: string[];
+  avoidTitles?: string[];
+};
+
 export type LanguageProfile = {
   language: LanguageId;
   displayName: string;
@@ -37,6 +45,6 @@ export type LanguageProfile = {
   judgeAdapter?: JudgeAdapter;
   generator?: {
     systemPrompt: string;
-    buildSlotPrompt: (slot: ProblemSlot) => string;
+    buildSlotPrompt: (slot: ProblemSlot, ctx?: SlotPromptContext) => string;
   };
 };
