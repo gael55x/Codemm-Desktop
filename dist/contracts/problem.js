@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.GeneratedProblemSchema = exports.GeneratedProblemDraftSchema = exports.WorkspaceSchema = exports.WorkspaceFileSchema = void 0;
 const zod_1 = require("zod");
 const javaRules_1 = require("./javaRules");
+const pythonRules_1 = require("./pythonRules");
 function stripJavaComments(source) {
     const withoutBlockComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
     return withoutBlockComments.replace(/\/\/.*$/gm, "");
@@ -24,28 +25,17 @@ function testSuiteReferencesClass(testSuite, className) {
     return patterns.some((re) => re.test(testSuite));
 }
 /**
- * Codemm v1.0 Generation output contract for Java problems.
+ * Codemm v1.0 Generation output contract for problems.
  *
  * NOTE: reference_solution is required at generation time, validated in Docker,
  * then discarded and MUST NOT be persisted.
  */
 const CommonProblemFieldsSchema = zod_1.z
     .object({
+    language: zod_1.z.enum(["java", "python"]),
     id: zod_1.z.string().trim().min(1).max(80),
     title: zod_1.z.string().trim().min(1).max(120),
     description: zod_1.z.string().trim().min(1).max(8000),
-    // Exactly 8 tests, non-trivial assertions, JUnit 5 imports, no package.
-    test_suite: zod_1.z
-        .string()
-        .min(1)
-        .superRefine((ts, ctx) => {
-        if (!(0, javaRules_1.isValidJUnit5TestSuite)(ts, 8)) {
-            ctx.addIssue({
-                code: zod_1.z.ZodIssueCode.custom,
-                message: "Invalid test_suite: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.",
-            });
-        }
-    }),
     constraints: zod_1.z.string().trim().min(1).max(2000),
     sample_inputs: zod_1.z.array(zod_1.z.string()).max(20),
     sample_outputs: zod_1.z.array(zod_1.z.string()).max(20),
@@ -54,6 +44,28 @@ const CommonProblemFieldsSchema = zod_1.z
     topic_tag: zod_1.z.string().trim().min(1).max(40),
 })
     .strict();
+const JavaTestSuiteSchema = zod_1.z
+    .string()
+    .min(1)
+    .superRefine((ts, ctx) => {
+    if (!(0, javaRules_1.isValidJUnit5TestSuite)(ts, 8)) {
+        ctx.addIssue({
+            code: zod_1.z.ZodIssueCode.custom,
+            message: "Invalid test_suite: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.",
+        });
+    }
+});
+const PythonTestSuiteSchema = zod_1.z
+    .string()
+    .min(1)
+    .superRefine((ts, ctx) => {
+    if (!(0, pythonRules_1.isValidPytestTestSuite)(ts, 8)) {
+        ctx.addIssue({
+            code: zod_1.z.ZodIssueCode.custom,
+            message: "Invalid test_suite: must use pytest, import solve from solution, define exactly 8 tests named test_case_1..test_case_8, avoid IO/randomness, and assert solve(...) == expected.",
+        });
+    }
+});
 const JavaFilenameSchema = zod_1.z
     .string()
     .trim()
@@ -125,6 +137,8 @@ exports.WorkspaceSchema = zod_1.z
     }
 });
 const LegacyDraftSchema = CommonProblemFieldsSchema.extend({
+    language: zod_1.z.literal("java"),
+    test_suite: JavaTestSuiteSchema,
     // Starter code the learner edits.
     starter_code: javaRules_1.JavaSourceNoPackageSchema,
     // Hidden solution used ONLY for validation.
@@ -143,17 +157,26 @@ function refineWorkspaceProblem(draft, ctx) {
     }
 }
 const WorkspaceDraftSchemaBase = CommonProblemFieldsSchema.extend({
+    language: zod_1.z.literal("java"),
+    test_suite: JavaTestSuiteSchema,
     workspace: exports.WorkspaceSchema,
     // Hidden solution workspace used ONLY for validation.
     reference_workspace: exports.WorkspaceSchema,
 }).strict();
 const WorkspaceDraftSchema = WorkspaceDraftSchemaBase.superRefine(refineWorkspaceProblem);
-exports.GeneratedProblemDraftSchema = zod_1.z.union([LegacyDraftSchema, WorkspaceDraftSchema]);
+const PythonDraftSchema = CommonProblemFieldsSchema.extend({
+    language: zod_1.z.literal("python"),
+    test_suite: PythonTestSuiteSchema,
+    starter_code: pythonRules_1.PythonSourceSchema,
+    reference_solution: pythonRules_1.PythonSourceSchema,
+}).strict();
+exports.GeneratedProblemDraftSchema = zod_1.z.union([LegacyDraftSchema, WorkspaceDraftSchema, PythonDraftSchema]);
 /**
  * Persisted problem shape (reference_solution intentionally omitted).
  */
 exports.GeneratedProblemSchema = zod_1.z.union([
     LegacyDraftSchema.omit({ reference_solution: true }),
     WorkspaceDraftSchemaBase.omit({ reference_workspace: true }).superRefine(refineWorkspaceProblem),
+    PythonDraftSchema.omit({ reference_solution: true }),
 ]);
 //# sourceMappingURL=problem.js.map

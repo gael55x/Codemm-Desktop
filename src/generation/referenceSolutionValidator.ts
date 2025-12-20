@@ -1,7 +1,7 @@
-import { runJudge, runJudgeFiles } from "../judge";
 import type { GeneratedProblemDraft } from "../contracts/problem";
 import { traceText } from "../utils/trace";
 import type { GenerationFailureKind } from "./errors";
+import { getLanguageProfile } from "../languages/profiles";
 
 export class ReferenceSolutionValidationError extends Error {
   judgeStdout: string;
@@ -35,13 +35,19 @@ export class ReferenceSolutionValidationError extends Error {
  * before persisting the problem.
  */
 export async function validateReferenceSolution(draft: GeneratedProblemDraft): Promise<void> {
+  const profile = getLanguageProfile(draft.language);
+  if (!profile.judgeAdapter) {
+    throw new Error(`No judge adapter configured for "${draft.language}".`);
+  }
+
   const result =
     "reference_solution" in draft
-      ? await runJudge(draft.reference_solution, draft.test_suite)
-      : await runJudgeFiles(
-          Object.fromEntries(draft.reference_workspace.files.map((f) => [f.path, f.content])),
-          draft.test_suite
-        );
+      ? await profile.judgeAdapter.judge({ kind: "code", code: draft.reference_solution, testSuite: draft.test_suite })
+      : await profile.judgeAdapter.judge({
+          kind: "files",
+          files: Object.fromEntries(draft.reference_workspace.files.map((f) => [f.path, f.content])),
+          testSuite: draft.test_suite,
+        });
   traceText("generation.judge.stdout", result.stdout ?? "", { extra: { title: draft.title } });
   traceText("generation.judge.stderr", result.stderr ?? "", { extra: { title: draft.title } });
 
@@ -61,9 +67,10 @@ export async function validateReferenceSolution(draft: GeneratedProblemDraft): P
     );
   }
 
-  // Check for compile errors
   const hasCompileError =
-    /\berror:|cannot find symbol|class, interface, or enum expected/.test(combinedLower);
+    draft.language === "java"
+      ? /\berror:|cannot find symbol|class, interface, or enum expected/.test(combinedLower)
+      : /\b(syntaxerror|indentationerror|taberror|modulenotfounderror|importerror)\b/.test(combinedLower);
 
   if (hasCompileError) {
     const snippet = `${result.stderr || result.stdout || ""}`.slice(0, 1200);

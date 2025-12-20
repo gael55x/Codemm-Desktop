@@ -2,8 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ReferenceSolutionValidationError = void 0;
 exports.validateReferenceSolution = validateReferenceSolution;
-const judge_1 = require("../judge");
 const trace_1 = require("../utils/trace");
+const profiles_1 = require("../languages/profiles");
 class ReferenceSolutionValidationError extends Error {
     constructor(message, opts) {
         super(message);
@@ -28,9 +28,17 @@ exports.ReferenceSolutionValidationError = ReferenceSolutionValidationError;
  * before persisting the problem.
  */
 async function validateReferenceSolution(draft) {
+    const profile = (0, profiles_1.getLanguageProfile)(draft.language);
+    if (!profile.judgeAdapter) {
+        throw new Error(`No judge adapter configured for "${draft.language}".`);
+    }
     const result = "reference_solution" in draft
-        ? await (0, judge_1.runJudge)(draft.reference_solution, draft.test_suite)
-        : await (0, judge_1.runJudgeFiles)(Object.fromEntries(draft.reference_workspace.files.map((f) => [f.path, f.content])), draft.test_suite);
+        ? await profile.judgeAdapter.judge({ kind: "code", code: draft.reference_solution, testSuite: draft.test_suite })
+        : await profile.judgeAdapter.judge({
+            kind: "files",
+            files: Object.fromEntries(draft.reference_workspace.files.map((f) => [f.path, f.content])),
+            testSuite: draft.test_suite,
+        });
     (0, trace_1.traceText)("generation.judge.stdout", result.stdout ?? "", { extra: { title: draft.title } });
     (0, trace_1.traceText)("generation.judge.stderr", result.stderr ?? "", { extra: { title: draft.title } });
     const stdoutLower = (result.stdout || "").toLowerCase();
@@ -44,8 +52,9 @@ async function validateReferenceSolution(draft) {
             kind: "timeout",
         });
     }
-    // Check for compile errors
-    const hasCompileError = /\berror:|cannot find symbol|class, interface, or enum expected/.test(combinedLower);
+    const hasCompileError = draft.language === "java"
+        ? /\berror:|cannot find symbol|class, interface, or enum expected/.test(combinedLower)
+        : /\b(syntaxerror|indentationerror|taberror|modulenotfounderror|importerror)\b/.test(combinedLower);
     if (hasCompileError) {
         const snippet = `${result.stderr || result.stdout || ""}`.slice(0, 1200);
         const fallback = snippet || `No compiler output captured (exitCode=${result.exitCode ?? "unknown"}).`;

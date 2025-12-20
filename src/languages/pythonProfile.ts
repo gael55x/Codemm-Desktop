@@ -13,8 +13,7 @@ export const PYTHON_LANGUAGE_PROFILE: LanguageProfile = {
   testFramework: "pytest",
   defaultConstraints: CODEMM_DEFAULT_CONSTRAINTS_BY_LANGUAGE.python,
   defaultTestCaseCount: CODEMM_DEFAULT_TEST_CASE_COUNT,
-  // Phase 13: execution + judge enabled; generation enabled in Phase 15.
-  support: { execution: true, judge: true, generation: false },
+  support: { execution: true, judge: true, generation: true },
   promptHints: ["Python 3.11", "pytest (exactly 8 tests)", "stdlib only", "no I/O unless specified"],
   executionAdapter: pythonExecutionAdapter,
   judgeAdapter: pythonJudgeAdapter,
@@ -23,4 +22,3 @@ export const PYTHON_LANGUAGE_PROFILE: LanguageProfile = {
     buildSlotPrompt: buildPythonSlotPrompt,
   },
 };
-

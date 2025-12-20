@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { JavaSourceNoPackageSchema, isValidJUnit5TestSuite } from "./javaRules";
+import { PythonSourceSchema, isValidPytestTestSuite } from "./pythonRules";
 
 function stripJavaComments(source: string): string {
   const withoutBlockComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -27,30 +28,17 @@ function testSuiteReferencesClass(testSuite: string, className: string): boolean
 }
 
 /**
- * Codemm v1.0 Generation output contract for Java problems.
+ * Codemm v1.0 Generation output contract for problems.
  *
  * NOTE: reference_solution is required at generation time, validated in Docker,
  * then discarded and MUST NOT be persisted.
  */
 const CommonProblemFieldsSchema = z
   .object({
+    language: z.enum(["java", "python"]),
     id: z.string().trim().min(1).max(80),
     title: z.string().trim().min(1).max(120),
     description: z.string().trim().min(1).max(8000),
-
-    // Exactly 8 tests, non-trivial assertions, JUnit 5 imports, no package.
-    test_suite: z
-      .string()
-      .min(1)
-      .superRefine((ts, ctx) => {
-        if (!isValidJUnit5TestSuite(ts, 8)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message:
-              "Invalid test_suite: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.",
-          });
-        }
-      }),
 
     constraints: z.string().trim().min(1).max(2000),
 
@@ -62,6 +50,32 @@ const CommonProblemFieldsSchema = z
     topic_tag: z.string().trim().min(1).max(40),
   })
   .strict();
+
+const JavaTestSuiteSchema = z
+  .string()
+  .min(1)
+  .superRefine((ts, ctx) => {
+    if (!isValidJUnit5TestSuite(ts, 8)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Invalid test_suite: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.",
+      });
+    }
+  });
+
+const PythonTestSuiteSchema = z
+  .string()
+  .min(1)
+  .superRefine((ts, ctx) => {
+    if (!isValidPytestTestSuite(ts, 8)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Invalid test_suite: must use pytest, import solve from solution, define exactly 8 tests named test_case_1..test_case_8, avoid IO/randomness, and assert solve(...) == expected.",
+      });
+    }
+  });
 
 const JavaFilenameSchema = z
   .string()
@@ -141,6 +155,8 @@ export const WorkspaceSchema = z
   });
 
 const LegacyDraftSchema = CommonProblemFieldsSchema.extend({
+  language: z.literal("java"),
+  test_suite: JavaTestSuiteSchema,
   // Starter code the learner edits.
   starter_code: JavaSourceNoPackageSchema,
   // Hidden solution used ONLY for validation.
@@ -163,6 +179,8 @@ function refineWorkspaceProblem(
 }
 
 const WorkspaceDraftSchemaBase = CommonProblemFieldsSchema.extend({
+  language: z.literal("java"),
+  test_suite: JavaTestSuiteSchema,
   workspace: WorkspaceSchema,
   // Hidden solution workspace used ONLY for validation.
   reference_workspace: WorkspaceSchema,
@@ -170,7 +188,14 @@ const WorkspaceDraftSchemaBase = CommonProblemFieldsSchema.extend({
 
 const WorkspaceDraftSchema = WorkspaceDraftSchemaBase.superRefine(refineWorkspaceProblem);
 
-export const GeneratedProblemDraftSchema = z.union([LegacyDraftSchema, WorkspaceDraftSchema]);
+const PythonDraftSchema = CommonProblemFieldsSchema.extend({
+  language: z.literal("python"),
+  test_suite: PythonTestSuiteSchema,
+  starter_code: PythonSourceSchema,
+  reference_solution: PythonSourceSchema,
+}).strict();
+
+export const GeneratedProblemDraftSchema = z.union([LegacyDraftSchema, WorkspaceDraftSchema, PythonDraftSchema]);
 
 export type GeneratedProblemDraft = z.infer<typeof GeneratedProblemDraftSchema>;
 
@@ -180,6 +205,7 @@ export type GeneratedProblemDraft = z.infer<typeof GeneratedProblemDraftSchema>;
 export const GeneratedProblemSchema = z.union([
   LegacyDraftSchema.omit({ reference_solution: true }),
   WorkspaceDraftSchemaBase.omit({ reference_workspace: true }).superRefine(refineWorkspaceProblem),
+  PythonDraftSchema.omit({ reference_solution: true }),
 ]);
 
 export type GeneratedProblem = z.infer<typeof GeneratedProblemSchema>;

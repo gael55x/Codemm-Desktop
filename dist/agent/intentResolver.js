@@ -251,13 +251,14 @@ async function resolveIntentWithLLM(args) {
         // - If user doesn't mention language and none is set, default to Java.
         const explicitLanguage = extractExplicitLanguage(userMessage);
         const currentLanguage = args.currentSpec.language;
+        const effectiveCurrentLanguage = currentLanguage ?? "java";
         const inferredLanguage = output.inferredPatch.language;
         if (explicitLanguage) {
-            const isSwitch = currentLanguage != null && explicitLanguage !== currentLanguage;
+            const isSwitch = explicitLanguage !== effectiveCurrentLanguage;
             if (isSwitch && !isLanguageSwitchConfirmed(userMessage)) {
                 return {
                     kind: "clarify",
-                    question: `I can generate this in ${explicitLanguage.toUpperCase()}. Want to proceed with ${explicitLanguage.toUpperCase()}, or stick with ${currentLanguage.toUpperCase()}? Reply "${explicitLanguage}" to switch or "${currentLanguage}" to keep it.`,
+                    question: `I can generate this in ${explicitLanguage.toUpperCase()}. Want to proceed with ${explicitLanguage.toUpperCase()}, or stick with ${effectiveCurrentLanguage.toUpperCase()}? Reply "${explicitLanguage}" to switch or "${effectiveCurrentLanguage}" to keep it.`,
                     output,
                 };
             }

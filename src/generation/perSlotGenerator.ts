@@ -54,7 +54,7 @@ function getWorkspaceTargetFile(draft: any): { path: string; role: string; conte
   return (nonEntry ?? files[0]) as any;
 }
 
-function buildRepairPrompt(slot: ProblemSlot, repair: RepairContext, ctx?: SlotPromptContext): string {
+function buildJavaRepairPrompt(slot: ProblemSlot, repair: RepairContext, ctx?: SlotPromptContext): string {
   const previousJson =
     repair.previousDraft != null ? JSON.stringify(repair.previousDraft, null, 2) : null;
   const stdoutSnippet = (repair.judgeStdout ?? "").slice(0, 1600);
@@ -111,6 +111,65 @@ Goal:
 Return ONLY valid JSON. No markdown. No code fences. No prose.`;
 }
 
+function buildPythonRepairPrompt(slot: ProblemSlot, repair: RepairContext, ctx?: SlotPromptContext): string {
+  const previousJson =
+    repair.previousDraft != null ? JSON.stringify(repair.previousDraft, null, 2) : null;
+  const stdoutSnippet = (repair.judgeStdout ?? "").slice(0, 1600);
+  const stderrSnippet = (repair.judgeStderr ?? "").slice(0, 1600);
+  const rawSnippet = (repair.previousRaw ?? "").slice(0, 2400);
+  const errorMessage = (repair.errorMessage ?? "").slice(0, 600);
+
+  return `You previously generated a problem JSON for this slot, but the reference_solution FAILED when executed against the test_suite in Docker/pytest.
+
+Slot requirements:
+- Difficulty: ${slot.difficulty}
+- Topics: ${slot.topics.join(", ")}
+- Problem style: ${slot.problem_style}
+- Constraints: ${slot.constraints}
+- Python 3.11
+- test_suite must use pytest and define exactly 8 tests named test_case_1..test_case_8
+
+${ctx?.domain ? `\nScenario seed: ${ctx.domain}\n` : ""}
+${ctx?.avoidDomains?.length ? `Avoid repeating domains: ${ctx.avoidDomains.join(", ")}\n` : ""}
+${ctx?.avoidTitles?.length ? `Avoid reusing titles too similar to: ${ctx.avoidTitles.join(" | ")}\n` : ""}
+
+Failure output:
+STDOUT:
+${stdoutSnippet || "(empty)"}
+
+STDERR:
+${stderrSnippet || "(empty)"}
+
+Error reason:
+${errorMessage || "(not provided)"}
+
+Hard structure rules (do not violate):
+- starter_code and reference_solution must define solve(...)
+- solve(...) must NOT use input(), print(), open(), networking, or randomness
+- test_suite must import solve via: from solution import solve
+- No print-based tests, no randomness, no pytest.approx
+- Keep exactly 8 tests: test_case_1..test_case_8
+
+Here is your previous output (may be truncated):
+${rawSnippet || "(not provided)"}
+
+Here is your previous JSON (preferred to edit if present):
+${previousJson || "(not provided)"}
+
+Goal:
+- Return corrected JSON with the exact same fields.
+- Prefer keeping id/title/description/starter_code stable.
+- You MAY update test_suite and/or reference_solution, but the final pair MUST pass in Docker/pytest.
+
+Return ONLY valid JSON. No markdown. No code fences. No prose.`;
+}
+
+function buildRepairPrompt(slot: ProblemSlot, repair: RepairContext, ctx?: SlotPromptContext): string {
+  return slot.language === "python"
+    ? buildPythonRepairPrompt(slot, repair, ctx)
+    : buildJavaRepairPrompt(slot, repair, ctx);
+}
+
 /**
  * Generate a single problem for the given slot via one Codex LLM call.
  *
@@ -125,11 +184,6 @@ export async function generateSingleProblem(
   slot: ProblemSlot,
   opts?: { repair?: RepairContext; promptContext?: SlotPromptContext }
 ): Promise<GeneratedDraftWithMeta> {
-  if (slot.language !== "java") {
-    throw new GenerationContractError(`Language "${slot.language}" is not supported for generation yet.`, {
-      slotIndex: slot.index,
-    });
-  }
   const prompt = opts?.repair
     ? buildRepairPrompt(slot, opts.repair, opts.promptContext)
     : buildSlotPromptWithContext(slot, opts?.promptContext);
@@ -160,6 +214,87 @@ export async function generateSingleProblem(
 
     // Normalize fields (defensive, same pattern as legacy agent)
     const raw = parsed as any;
+
+    if (slot.language === "python") {
+      if (raw.workspace || raw.reference_workspace) {
+        throw new Error("Python generation does not support workspace problems yet.");
+      }
+
+      const baseId =
+        typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : crypto.randomUUID();
+
+      const title =
+        typeof raw.title === "string" && raw.title.trim()
+          ? raw.title.trim()
+          : `Problem for ${slot.topics[0] ?? "Python"}`;
+
+      const description =
+        typeof raw.description === "string" && raw.description.trim()
+          ? raw.description.trim()
+          : `Problem description for ${title}.`;
+
+      let starterCode =
+        typeof raw.starter_code === "string" && raw.starter_code.trim() ? raw.starter_code.trim() : "";
+      if (!starterCode.trim()) {
+        starterCode = "def solve(x):\n    # TODO: implement\n    raise NotImplementedError\n";
+      }
+
+      const testSuite =
+        typeof raw.test_suite === "string" && raw.test_suite.trim() ? raw.test_suite.trim() : "";
+      if (!testSuite.trim()) {
+        throw new Error(`Invalid test_suite for slot ${slot.index}: missing.`);
+      }
+
+      const referenceSolution =
+        typeof raw.reference_solution === "string" && raw.reference_solution.trim()
+          ? raw.reference_solution.trim()
+          : "";
+      if (!referenceSolution.trim()) {
+        throw new Error(`Missing reference_solution for slot ${slot.index}.`);
+      }
+
+      const constraints =
+        typeof raw.constraints === "string" && raw.constraints.trim()
+          ? raw.constraints.trim()
+          : slot.constraints;
+
+      const sampleInputs = Array.isArray(raw.sample_inputs)
+        ? (raw.sample_inputs as string[])
+        : [];
+
+      const sampleOutputs = Array.isArray(raw.sample_outputs)
+        ? (raw.sample_outputs as string[])
+        : [];
+
+      const difficulty = slot.difficulty;
+      const topicTag = slot.topics[0] ?? "oop";
+
+      const draft: GeneratedProblemDraft = {
+        language: "python",
+        id: baseId,
+        title,
+        description,
+        starter_code: starterCode,
+        test_suite: testSuite,
+        reference_solution: referenceSolution,
+        constraints,
+        sample_inputs: sampleInputs,
+        sample_outputs: sampleOutputs,
+        difficulty,
+        topic_tag: topicTag,
+      };
+
+      const result = GeneratedProblemDraftSchema.safeParse(draft);
+      if (!result.success) {
+        const firstError = result.error.issues[0];
+        throw new Error(
+          `Generated problem for slot ${slot.index} failed schema validation: ${firstError?.message ?? "unknown error"}`
+        );
+      }
+
+      trace("generation.draft.meta", { slotIndex: slot.index, title, language: "python", difficulty, topicTag });
+      return { draft: result.data, meta: { llmOutputHash } };
+    }
 
     // Workspace variant (Phase B): accept workspace + reference_workspace.
     if (raw.workspace && raw.reference_workspace) {
@@ -253,6 +388,7 @@ export async function generateSingleProblem(
       const topicTag = slot.topics[0] ?? "oop";
 
       const draft: GeneratedProblemDraft = {
+        language: "java",
         id:
           typeof raw.id === "string" && raw.id.trim()
             ? raw.id.trim()
@@ -387,6 +523,7 @@ export async function generateSingleProblem(
     const topicTag = slot.topics[0] ?? "oop";
 
     const draft: GeneratedProblemDraft = {
+      language: "java",
       id: baseId,
       title,
       description,

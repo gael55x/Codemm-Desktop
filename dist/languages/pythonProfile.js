@@ -11,8 +11,7 @@ exports.PYTHON_LANGUAGE_PROFILE = {
     testFramework: "pytest",
     defaultConstraints: activitySpec_1.CODEMM_DEFAULT_CONSTRAINTS_BY_LANGUAGE.python,
     defaultTestCaseCount: activitySpec_1.CODEMM_DEFAULT_TEST_CASE_COUNT,
-    // Phase 13: execution + judge enabled; generation enabled in Phase 15.
-    support: { execution: true, judge: true, generation: false },
+    support: { execution: true, judge: true, generation: true },
     promptHints: ["Python 3.11", "pytest (exactly 8 tests)", "stdlib only", "no I/O unless specified"],
     executionAdapter: pythonAdapters_1.pythonExecutionAdapter,
     judgeAdapter: pythonAdapters_1.pythonJudgeAdapter,
