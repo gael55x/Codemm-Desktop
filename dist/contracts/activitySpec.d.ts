@@ -4,7 +4,7 @@ export declare const CODEMM_DEFAULT_TEST_CASE_COUNT: 8;
 export declare const CODEMM_DEFAULT_CONSTRAINTS: "Java 17, JUnit 5, no package declarations.";
 export declare const CODEMM_DEFAULT_CONSTRAINTS_BY_LANGUAGE: {
     readonly java: "Java 17, JUnit 5, no package declarations.";
-    readonly python: "Python 3.11, pytest, no external libraries.";
+    readonly python: "Python 3.11, pytest, standard library only, no filesystem access, no networking, time limit enforced.";
 };
 export declare const ActivityLanguageSchema: z.ZodEnum<["java", "python"]>;
 export type ActivityLanguage = z.infer<typeof ActivityLanguageSchema>;

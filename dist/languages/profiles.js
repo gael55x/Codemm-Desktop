@@ -9,6 +9,7 @@ exports.isLanguageSupportedForExecution = isLanguageSupportedForExecution;
 const activitySpec_1 = require("../contracts/activitySpec");
 const javaPrompts_1 = require("./javaPrompts");
 const javaAdapters_1 = require("./javaAdapters");
+const pythonProfile_1 = require("./pythonProfile");
 exports.LANGUAGE_PROFILES = {
     java: {
         language: "java",
@@ -26,17 +27,7 @@ exports.LANGUAGE_PROFILES = {
             buildSlotPrompt: javaPrompts_1.buildJavaSlotPrompt,
         },
     },
-    python: {
-        language: "python",
-        displayName: "Python",
-        runtime: "Python 3.11",
-        testFramework: "pytest",
-        defaultConstraints: activitySpec_1.CODEMM_DEFAULT_CONSTRAINTS_BY_LANGUAGE.python,
-        defaultTestCaseCount: activitySpec_1.CODEMM_DEFAULT_TEST_CASE_COUNT,
-        // Stubbed until we add a python judge image + validators + generator prompts.
-        support: { execution: false, judge: false, generation: false },
-        promptHints: ["pytest (exactly 8 test cases)."],
-    },
+    python: pythonProfile_1.PYTHON_LANGUAGE_PROFILE,
 };
 function listAgentSelectableLanguages() {
     // What we allow the agent to select without additional product work.

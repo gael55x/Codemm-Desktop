@@ -4,6 +4,7 @@ import {
 } from "../contracts/activitySpec";
 import { buildJavaSlotPrompt, JAVA_V1_GENERATOR_SYSTEM_PROMPT } from "./javaPrompts";
 import { javaExecutionAdapter, javaJudgeAdapter } from "./javaAdapters";
+import { PYTHON_LANGUAGE_PROFILE } from "./pythonProfile";
 import type { LanguageId, LanguageProfile } from "./types";
 
 export const LANGUAGE_PROFILES: Record<LanguageId, LanguageProfile> = {
@@ -23,17 +24,7 @@ export const LANGUAGE_PROFILES: Record<LanguageId, LanguageProfile> = {
       buildSlotPrompt: buildJavaSlotPrompt,
     },
   },
-  python: {
-    language: "python",
-    displayName: "Python",
-    runtime: "Python 3.11",
-    testFramework: "pytest",
-    defaultConstraints: CODEMM_DEFAULT_CONSTRAINTS_BY_LANGUAGE.python,
-    defaultTestCaseCount: CODEMM_DEFAULT_TEST_CASE_COUNT,
-    // Stubbed until we add a python judge image + validators + generator prompts.
-    support: { execution: false, judge: false, generation: false },
-    promptHints: ["pytest (exactly 8 test cases)."],
-  },
+  python: PYTHON_LANGUAGE_PROFILE,
 };
 
 export function listAgentSelectableLanguages(): LanguageId[] {

@@ -41,8 +41,8 @@ app.post("/run", async (req, res) => {
         }
         const maxTotalCodeLength = 200000; // 200KB
         const maxStdinLength = 50000; // 50KB
-        const maxFileCount = 12;
-        const filenamePattern = /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
+        const maxFileCount = lang === "python" ? 20 : 12;
+        const filenamePattern = lang === "python" ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/ : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
         let safeStdin = undefined;
         if (typeof stdin !== "undefined") {
             if (typeof stdin !== "string") {
@@ -81,6 +81,12 @@ app.post("/run", async (req, res) => {
                     });
                 }
                 safeFiles[filename] = source;
+            }
+            if (lang === "python") {
+                const hasMain = entries.some(([filename]) => filename === "main.py");
+                if (!hasMain) {
+                    return res.status(400).json({ error: 'Python /run requires a "main.py" file.' });
+                }
             }
             const execReq = {
                 kind: "files",
@@ -139,8 +145,8 @@ app.post("/submit", auth_1.optionalAuth, async (req, res) => {
             return res.status(400).json({ error: `No judge adapter configured for "${lang}".` });
         }
         const maxTotalCodeLength = 200000; // 200KB
-        const maxFileCount = 16;
-        const filenamePattern = /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
+        const maxFileCount = lang === "python" ? 30 : 16;
+        const filenamePattern = lang === "python" ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/ : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
         let result;
         let codeForPersistence = null;
         if (files && typeof files === "object") {
@@ -169,6 +175,14 @@ app.post("/submit", auth_1.optionalAuth, async (req, res) => {
                     });
                 }
                 safeFiles[filename] = source;
+            }
+            if (lang === "python") {
+                if (Object.prototype.hasOwnProperty.call(safeFiles, "test_solution.py")) {
+                    return res.status(400).json({ error: 'files must not include "test_solution.py".' });
+                }
+                if (!Object.prototype.hasOwnProperty.call(safeFiles, "solution.py")) {
+                    return res.status(400).json({ error: 'Python /submit requires a "solution.py" file.' });
+                }
             }
             result = await profile.judgeAdapter.judge({ kind: "files", files: safeFiles, testSuite });
             codeForPersistence = JSON.stringify(safeFiles);

@@ -134,21 +134,34 @@ else
   echo "[1/3] npm dependencies already installed."
 fi
 
-# 2) Ensure the codem-java-judge Docker image exists
-echo "[2/3] Checking codem-java-judge Docker image..."
+# 2) Ensure the judge Docker images exist
+echo "[2/3] Checking judge Docker images..."
 if [[ "${rebuild_judge}" == "1" ]]; then
-  echo "REBUILD_JUDGE=1 set. Removing running containers and rebuilding codem-java-judge..."
+  echo "REBUILD_JUDGE=1 set. Removing running containers and rebuilding judge images..."
   RUNNING_CONTAINERS=$(docker ps -aq --filter ancestor=codem-java-judge)
   if [[ -n "${RUNNING_CONTAINERS}" ]]; then
     docker rm -f ${RUNNING_CONTAINERS}
   fi
   docker image rm -f codem-java-judge:latest >/dev/null 2>&1 || true
   docker build -f Dockerfile.java-judge -t codem-java-judge .
+  RUNNING_CONTAINERS_PY=$(docker ps -aq --filter ancestor=codem-python-judge)
+  if [[ -n "${RUNNING_CONTAINERS_PY}" ]]; then
+    docker rm -f ${RUNNING_CONTAINERS_PY}
+  fi
+  docker image rm -f codem-python-judge:latest >/dev/null 2>&1 || true
+  docker build -f Dockerfile.python-judge -t codem-python-judge .
 elif ! docker image inspect codem-java-judge:latest >/dev/null 2>&1; then
   echo "codem-java-judge image not found. Building from Dockerfile.java-judge..."
   docker build -f Dockerfile.java-judge -t codem-java-judge .
 else
   echo "codem-java-judge image found."
+fi
+
+if ! docker image inspect codem-python-judge:latest >/dev/null 2>&1; then
+  echo "codem-python-judge image not found. Building from Dockerfile.python-judge..."
+  docker build -f Dockerfile.python-judge -t codem-python-judge .
+else
+  echo "codem-python-judge image found."
 fi
 
 # 3) Build and start the backend

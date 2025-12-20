@@ -7,7 +7,8 @@ export const CODEMM_DEFAULT_TEST_CASE_COUNT = 8 as const;
 export const CODEMM_DEFAULT_CONSTRAINTS = "Java 17, JUnit 5, no package declarations." as const;
 export const CODEMM_DEFAULT_CONSTRAINTS_BY_LANGUAGE = {
   java: CODEMM_DEFAULT_CONSTRAINTS,
-  python: "Python 3.11, pytest, no external libraries." as const,
+  python:
+    "Python 3.11, pytest, standard library only, no filesystem access, no networking, time limit enforced." as const,
 } as const;
 
 export const ActivityLanguageSchema = z.enum(["java", "python"]);

@@ -60,8 +60,9 @@ app.post("/run", async (req, res) => {
 
     const maxTotalCodeLength = 200_000; // 200KB
     const maxStdinLength = 50_000; // 50KB
-    const maxFileCount = 12;
-    const filenamePattern = /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
+    const maxFileCount = lang === "python" ? 20 : 12;
+    const filenamePattern =
+      lang === "python" ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/ : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
 
     let safeStdin: string | undefined = undefined;
     if (typeof stdin !== "undefined") {
@@ -103,6 +104,13 @@ app.post("/run", async (req, res) => {
           });
         }
         safeFiles[filename] = source;
+      }
+
+      if (lang === "python") {
+        const hasMain = entries.some(([filename]) => filename === "main.py");
+        if (!hasMain) {
+          return res.status(400).json({ error: 'Python /run requires a "main.py" file.' });
+        }
       }
 
       const execReq: {
@@ -176,8 +184,9 @@ app.post("/submit", optionalAuth, async (req: AuthRequest, res) => {
     }
 
     const maxTotalCodeLength = 200_000; // 200KB
-    const maxFileCount = 16;
-    const filenamePattern = /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
+    const maxFileCount = lang === "python" ? 30 : 16;
+    const filenamePattern =
+      lang === "python" ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/ : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
 
     let result;
     let codeForPersistence: string | null = null;
@@ -209,6 +218,15 @@ app.post("/submit", optionalAuth, async (req: AuthRequest, res) => {
           });
         }
         safeFiles[filename] = source;
+      }
+
+      if (lang === "python") {
+        if (Object.prototype.hasOwnProperty.call(safeFiles, "test_solution.py")) {
+          return res.status(400).json({ error: 'files must not include "test_solution.py".' });
+        }
+        if (!Object.prototype.hasOwnProperty.call(safeFiles, "solution.py")) {
+          return res.status(400).json({ error: 'Python /submit requires a "solution.py" file.' });
+        }
       }
 
       result = await profile.judgeAdapter.judge({ kind: "files", files: safeFiles, testSuite });
