@@ -391,6 +391,14 @@ export default function Home() {
   }
 
   const isBusy = chatLoading || loading;
+  const displayName =
+    (typeof user?.displayName === "string" && user.displayName.trim()
+      ? user.displayName
+      : typeof user?.display_name === "string" && user.display_name.trim()
+        ? user.display_name
+        : typeof user?.username === "string" && user.username.trim()
+          ? user.username
+          : "Gaille") as string;
 
   return (
     <div className={`min-h-screen transition-colors ${darkMode ? "bg-slate-900" : "bg-white"}`}>
@@ -434,7 +442,7 @@ export default function Home() {
                     : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                 }`}
               >
-                {user.displayName}
+                {displayName}
               </button>
             ) : (
               <button

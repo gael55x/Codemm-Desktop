@@ -160,11 +160,8 @@ export function useSpecBuilderUX() {
 
   const formatSlotPrompt = useCallback((slot: SpecSlot | null): string | null => {
     if (!slot) return null;
-    const parts = [slot.intent];
-    if (slot.examples?.length) {
-      parts.push(`Example: ${slot.examples[0]}`);
-    }
-    return parts.join("\n");
+    if (slot.examples?.length) return `${slot.intent} Example: ${slot.examples[0]}`;
+    return slot.intent;
   }, []);
 
   const normalizeInput = useCallback(
