@@ -10,6 +10,7 @@ This diagram reflects the **current backend + agent architecture** in one end-to
 - **Create Activity (SpecBuilder agent loop)** via `/sessions`
 - **Generate Activity** via `/sessions/:id/generate` + SSE progress
 - **Run/Judge** via `/run` and `/submit` for **Java + Python**
+- **Agentic intelligence (deterministic)**: commitment memory, ambiguity risk handling, goal-driven questions
 - **Safety**: reference solutions are Docker-validated and then discarded (never persisted)
 - **Observability**: structured progress SSE + optional trace SSE (sanitized, no prompts/raw solutions streamed)
 
@@ -47,9 +48,12 @@ flowchart TB
   %% -------------------------
   subgraph "Agent Core (SpecBuilder)"
     AG_FIX["Invariant Enforcer<br/>ensureFixedFields()<br/>src/compiler/specDraft.ts"]
-    AG_COL["Collector buffer keyed by QuestionKey<br/>getDynamicQuestionKey()<br/>src/agent/questionKey.ts"]
+    AG_COL["Collector buffer keyed by QuestionKey (goal-driven)<br/>getDynamicQuestionKey()<br/>src/agent/questionKey.ts"]
     AG_IR["Intent Resolver<br/>src/agent/intentResolver.ts"]
     AG_IR_LANG["Deterministic language gate<br/>- default java if unspecified<br/>- confirm before switching<br/>(fixes language loop)"]
+    AG_COMMIT["Commitment memory (persisted)<br/>locks explicit high-confidence fields<br/>src/agent/commitments.ts"]
+    AG_AMB["Ambiguity risk classifier<br/>SAFE/DEFERABLE/BLOCKING<br/>src/agent/ambiguity.ts"]
+    AG_GOALS["Conversation goals<br/>content/scope/difficulty/checking/language<br/>src/agent/conversationGoals.ts"]
     AG_IR_LLM["LLM call for spec inference<br/>createCodexCompletion()<br/>src/infra/llm/codex.ts"]
     AG_PARSE["Robust JSON parsing<br/>JSON to JSON5 to jsonrepair<br/>src/utils/jsonParser.ts"]
     AG_PATCH["Apply JSON Patch + invalidations + invariants<br/>applyJsonPatch() + ensureFixedFields()<br/>src/compiler/jsonPatch.ts + src/compiler/specDraft.ts"]
@@ -120,8 +124,8 @@ flowchart TB
   AG_IR_CONF -- yes --> AG_IR_LANG --> AG_PATCH
   AG_IR_EXPL -- no --> AG_IR_HASLANG
   AG_IR_HASLANG -- no --> AG_IR_DEFJAVA --> AG_PATCH
-  AG_IR_HASLANG -- yes --> AG_IR_LLM --> AG_PARSE --> AG_PATCH
-  AG_PATCH --> AG_RDY --> AG_PROMPT
+  AG_IR_HASLANG -- yes --> AG_IR_LLM --> AG_PARSE --> AG_AMB --> AG_PATCH
+  AG_PATCH --> AG_COMMIT --> AG_RDY --> AG_GOALS --> AG_PROMPT
   AG_IR_CLARIFY --> BE_DB
   AG_PROMPT --> BE_DB
   BE_DB --> AG_STATE
@@ -200,7 +204,9 @@ flowchart TB
   PARSE --> SCHEMA{"Intent schema valid"}
   SCHEMA -- no --> FALLBACK["Return error or noop<br/>SessionService uses deterministic next question"]
   SCHEMA -- yes --> TOPIC["Topic dominance heuristic optional"]
-  TOPIC --> JPATCH["Convert inferredPatch -> JSON Patch ops"]
+  TOPIC --> COMMITFILT["Commitment filter<br/>locked fields unchanged unless explicit contradiction<br/>src/agent/commitments.ts"]
+  COMMITFILT --> AMB["Ambiguity risk classifier<br/>drop BLOCKING fields, keep SAFE/DEFERABLE<br/>src/agent/ambiguity.ts"]
+  AMB --> JPATCH["Convert inferredPatch -> JSON Patch ops"]
   JPATCH --> INV["Auto invalidations + user invalidations"]
   INV --> APPLY["applyJsonPatch()"]
   APPLY --> FIX2["ensureFixedFields() again<br/>post-patch"]
@@ -210,8 +216,10 @@ flowchart TB
   VALID -- yes --> OUT["Return patch + merged SpecDraft<br/>plus confidence + rationale"]
 
   %% Session service post-processing
-  OUT --> RDY["computeReadiness()<br/>schema gaps + confidence gates<br/>src/agent/readiness.ts"]
-  RDY --> NEXT["generateNextPrompt()<br/>src/agent/promptGenerator.ts"]
+  OUT --> COMMIT2["Upsert commitments (persisted)<br/>src/agent/commitments.ts"]
+  COMMIT2 --> RDY["computeReadiness()<br/>schema gaps + confidence gates<br/>src/agent/readiness.ts"]
+  RDY --> GOALS2["Select next conversation goal<br/>src/agent/conversationGoals.ts"]
+  GOALS2 --> NEXT["generateNextPrompt()<br/>src/agent/promptGenerator.ts"]
   NEXT --> RESP["Assistant message + done flag"]
 
   %% Clarify branches
@@ -225,5 +233,50 @@ flowchart TB
 ### Notes
 
 - Spec invariants are enforced by `ensureFixedFields()` (`version`, `test_case_count=8`, and language-specific `constraints`).
+- Session memory is persisted and auditable: commitments and generation outcomes are stored on the session row.
 - Python generation currently supports **starter_code + reference_solution** (no workspace mode).
 - Progress SSE (`/sessions/:id/generate/stream`) and trace SSE (`/sessions/:id/trace`) do **not** stream prompts or hidden reference artifacts.
+
+---
+
+## AI Agent Layers (Deterministic Boundaries)
+
+```mermaid
+flowchart TB
+  %% =========================================================
+  %% CODEMM — AI AGENT LAYERS (LLM proposes, compiler decides)
+  %% =========================================================
+
+  subgraph L0["Layer 0 — Transport"]
+    R1["Express routes<br/>/sessions, /messages, /generate"]
+    SSE["SSE streams<br/>progress + trace (sanitized)"]
+  end
+
+  subgraph L1["Layer 1 — Session Orchestration"]
+    SVC1["SessionService<br/>state machine + persistence"]
+    DB1["SQLite session row<br/>spec_json + confidence_json<br/>commitments_json + generation_outcomes_json"]
+    COL1["Collector buffer<br/>stable questionKey"]
+  end
+
+  subgraph L2["Layer 2 — Deterministic Compiler Boundary"]
+    INV1["Invariants<br/>ensureFixedFields()"]
+    PATCH1["Apply JSON Patch<br/>applyJsonPatch()"]
+    RDY1["Readiness + goal selection<br/>computeReadiness() + selectNextGoal()"]
+    MEM1["Commitments<br/>lock explicit high-confidence"]
+    AMB1["Ambiguity policy<br/>SAFE/DEFERABLE/BLOCKING"]
+  end
+
+  subgraph L3["Layer 3 — LLM Proposals (No Direct Writes)"]
+    IR1["Intent inference LLM<br/>returns inferredPatch + confidence"]
+    GEN1["Per-slot generator LLM<br/>returns problem draft + reference artifact"]
+  end
+
+  subgraph L4["Layer 4 — Verification + Safety"]
+    DOCKER["Docker validate reference artifact<br/>compile + tests"]
+    DISCARD["Discard reference solution/workspace<br/>never persisted"]
+  end
+
+  U["User"] --> R1 --> SVC1 --> INV1 --> COL1 --> IR1 --> AMB1 --> PATCH1 --> MEM1 --> RDY1 --> SVC1 --> DB1
+  SVC1 -->|READY| GEN1 --> DOCKER --> DISCARD --> DB1
+  DB1 --> SSE
+```
