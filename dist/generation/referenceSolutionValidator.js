@@ -54,7 +54,9 @@ async function validateReferenceSolution(draft) {
     }
     const hasCompileError = draft.language === "java"
         ? /\berror:|cannot find symbol|class, interface, or enum expected/.test(combinedLower)
-        : /\b(syntaxerror|indentationerror|taberror|modulenotfounderror|importerror)\b/.test(combinedLower);
+        : draft.language === "python"
+            ? /\b(syntaxerror|indentationerror|taberror|modulenotfounderror|importerror)\b/.test(combinedLower)
+            : /\berror:|undefined reference|ld returned|collect2:/i.test(combinedLower);
     if (hasCompileError) {
         const snippet = `${result.stderr || result.stdout || ""}`.slice(0, 1200);
         const fallback = snippet || `No compiler output captured (exitCode=${result.exitCode ?? "unknown"}).`;

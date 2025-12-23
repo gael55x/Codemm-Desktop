@@ -60,9 +60,13 @@ app.post("/run", async (req, res) => {
 
     const maxTotalCodeLength = 200_000; // 200KB
     const maxStdinLength = 50_000; // 50KB
-    const maxFileCount = lang === "python" ? 20 : 12;
+    const maxFileCount = lang === "python" ? 20 : lang === "cpp" ? 40 : 12;
     const filenamePattern =
-      lang === "python" ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/ : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
+      lang === "python"
+        ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/
+        : lang === "cpp"
+        ? /^[A-Za-z_][A-Za-z0-9_]*\.(?:cpp|h|hpp)$/
+        : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
 
     let safeStdin: string | undefined = undefined;
     if (typeof stdin !== "undefined") {
@@ -110,6 +114,12 @@ app.post("/run", async (req, res) => {
         const hasMain = entries.some(([filename]) => filename === "main.py");
         if (!hasMain) {
           return res.status(400).json({ error: 'Python /run requires a "main.py" file.' });
+        }
+      }
+      if (lang === "cpp") {
+        const hasMain = entries.some(([filename]) => filename === "main.cpp");
+        if (!hasMain) {
+          return res.status(400).json({ error: 'C++ /run requires a "main.cpp" file.' });
         }
       }
 
@@ -184,9 +194,13 @@ app.post("/submit", optionalAuth, async (req: AuthRequest, res) => {
     }
 
     const maxTotalCodeLength = 200_000; // 200KB
-    const maxFileCount = lang === "python" ? 30 : 16;
+    const maxFileCount = lang === "python" ? 30 : lang === "cpp" ? 50 : 16;
     const filenamePattern =
-      lang === "python" ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/ : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
+      lang === "python"
+        ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/
+        : lang === "cpp"
+        ? /^[A-Za-z_][A-Za-z0-9_]*\.(?:cpp|h|hpp)$/
+        : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
 
     let result;
     let codeForPersistence: string | null = null;
@@ -226,6 +240,20 @@ app.post("/submit", optionalAuth, async (req: AuthRequest, res) => {
         }
         if (!Object.prototype.hasOwnProperty.call(safeFiles, "solution.py")) {
           return res.status(400).json({ error: 'Python /submit requires a "solution.py" file.' });
+        }
+      }
+      if (lang === "cpp") {
+        if (Object.prototype.hasOwnProperty.call(safeFiles, "test.cpp")) {
+          return res.status(400).json({ error: 'files must not include "test.cpp".' });
+        }
+        if (!Object.prototype.hasOwnProperty.call(safeFiles, "solution.cpp")) {
+          return res.status(400).json({ error: 'C++ /submit requires a "solution.cpp" file.' });
+        }
+        const cppSources = Object.keys(safeFiles).filter((f) => f.endsWith(".cpp") && f !== "solution.cpp");
+        if (cppSources.length > 0) {
+          return res.status(400).json({
+            error: `C++ /submit supports "solution.cpp" plus optional headers only. Remove: ${cppSources.join(", ")}`,
+          });
         }
       }
 

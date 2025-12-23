@@ -97,6 +97,7 @@ echo "[2/3] Ensuring judge Docker images..."
 ensure_docker_running
 ensure_image "codem-java-judge" "Dockerfile.java-judge"
 ensure_image "codem-python-judge" "Dockerfile.python-judge"
+ensure_image "codem-cpp-judge" "Dockerfile.cpp-judge"
 
 echo "[3/3] Starting backend..."
 start_backend
