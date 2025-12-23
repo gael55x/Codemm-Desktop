@@ -21,9 +21,25 @@ Test suite requirements (custom runner in test.cpp):
 - Must #include "solution.cpp"
 - Must define a main() test runner
 - Exactly 8 tests, named: test_case_1 ... test_case_8
-- Define a VARIADIC macro to avoid comma parsing bugs:
-  #define RUN_TEST(name, ...) do { ... __VA_ARGS__ ... } while (0)
-- Use the macro form: RUN_TEST("test_case_1", { ... });
+- Use this exact harness template (copy/paste; only edit inside the TODO blocks):
+  static int __codem_failures = 0;
+  #define RUN_TEST(name, ...) do { \\
+    try { __VA_ARGS__; std::cout << "[PASS] " << (name) << "\\\\n"; } \\
+    catch (const std::exception& e) { std::cout << "[FAIL] " << (name) << "\\\\n"; __codem_failures++; } \\
+    catch (...) { std::cout << "[FAIL] " << (name) << "\\\\n"; __codem_failures++; } \\
+  } while (0)
+
+  int main() {
+    RUN_TEST("test_case_1", { /* TODO */ });
+    RUN_TEST("test_case_2", { /* TODO */ });
+    RUN_TEST("test_case_3", { /* TODO */ });
+    RUN_TEST("test_case_4", { /* TODO */ });
+    RUN_TEST("test_case_5", { /* TODO */ });
+    RUN_TEST("test_case_6", { /* TODO */ });
+    RUN_TEST("test_case_7", { /* TODO */ });
+    RUN_TEST("test_case_8", { /* TODO */ });
+    return __codem_failures ? 1 : 0;
+  }
 - Print a single line per test in this exact format:
   [PASS] test_case_1
   [FAIL] test_case_1

@@ -87,7 +87,7 @@ const CppTestSuiteSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'Invalid test_suite: must #include "solution.cpp", define a main(), and include exactly 8 RUN_TEST("test_case_1".."test_case_8", ...) tests with deterministic assertions.',
+          'Invalid test_suite: must #include "solution.cpp", define a main(), print [PASS]/[FAIL] lines, and include exactly 8 tests named test_case_1..test_case_8 (RUN_TEST must be variadic).',
       });
     }
   });
