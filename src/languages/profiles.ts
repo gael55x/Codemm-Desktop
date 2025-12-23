@@ -5,12 +5,14 @@ import {
 import { JAVA_LANGUAGE_PROFILE } from "./java/profile";
 import { CPP_LANGUAGE_PROFILE } from "./cpp/profile";
 import { PYTHON_LANGUAGE_PROFILE } from "./python/profile";
+import { SQL_LANGUAGE_PROFILE } from "./sql/profile";
 import type { LanguageId, LanguageProfile } from "./types";
 
 export const LANGUAGE_PROFILES: Record<LanguageId, LanguageProfile> = {
   java: JAVA_LANGUAGE_PROFILE,
   python: PYTHON_LANGUAGE_PROFILE,
   cpp: CPP_LANGUAGE_PROFILE,
+  sql: SQL_LANGUAGE_PROFILE,
 };
 
 export function listAgentSelectableLanguages(): LanguageId[] {

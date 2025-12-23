@@ -33,7 +33,7 @@ function testSuiteReferencesClass(testSuite, className) {
  */
 const CommonProblemFieldsSchema = zod_1.z
     .object({
-    language: zod_1.z.enum(["java", "python", "cpp"]),
+    language: zod_1.z.enum(["java", "python", "cpp", "sql"]),
     id: zod_1.z.string().trim().min(1).max(80),
     title: zod_1.z.string().trim().min(1).max(120),
     description: zod_1.z.string().trim().min(1).max(8000),

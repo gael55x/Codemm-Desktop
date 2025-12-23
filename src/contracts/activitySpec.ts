@@ -10,9 +10,10 @@ export const CODEMM_DEFAULT_CONSTRAINTS_BY_LANGUAGE = {
   python:
     "Python 3.11, pytest, standard library only, no filesystem access, no networking, time limit enforced." as const,
   cpp: "C++20, g++ (GNU), standard library only, no filesystem access, no networking, deterministic behavior." as const,
+  sql: "SQLite 3 (SQL dialect), read-only queries only, deterministic results (explicit ORDER BY when needed)." as const,
 } as const;
 
-export const ActivityLanguageSchema = z.enum(["java", "python", "cpp"]);
+export const ActivityLanguageSchema = z.enum(["java", "python", "cpp", "sql"]);
 export type ActivityLanguage = z.infer<typeof ActivityLanguageSchema>;
 
 export const DifficultySchema = z.enum(["easy", "medium", "hard"]);

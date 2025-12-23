@@ -36,7 +36,7 @@ function testSuiteReferencesClass(testSuite: string, className: string): boolean
  */
 const CommonProblemFieldsSchema = z
   .object({
-    language: z.enum(["java", "python", "cpp"]),
+    language: z.enum(["java", "python", "cpp", "sql"]),
     id: z.string().trim().min(1).max(80),
     title: z.string().trim().min(1).max(120),
     description: z.string().trim().min(1).max(8000),

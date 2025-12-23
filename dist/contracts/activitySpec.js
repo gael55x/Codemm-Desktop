@@ -11,8 +11,9 @@ exports.CODEMM_DEFAULT_CONSTRAINTS_BY_LANGUAGE = {
     java: exports.CODEMM_DEFAULT_CONSTRAINTS,
     python: "Python 3.11, pytest, standard library only, no filesystem access, no networking, time limit enforced.",
     cpp: "C++20, g++ (GNU), standard library only, no filesystem access, no networking, deterministic behavior.",
+    sql: "SQLite 3 (SQL dialect), read-only queries only, deterministic results (explicit ORDER BY when needed).",
 };
-exports.ActivityLanguageSchema = zod_1.z.enum(["java", "python", "cpp"]);
+exports.ActivityLanguageSchema = zod_1.z.enum(["java", "python", "cpp", "sql"]);
 exports.DifficultySchema = zod_1.z.enum(["easy", "medium", "hard"]);
 exports.DifficultyPlanItemSchema = zod_1.z
     .object({
