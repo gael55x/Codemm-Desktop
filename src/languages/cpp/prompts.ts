@@ -21,6 +21,8 @@ Test suite requirements (custom runner in test.cpp):
 - Must #include "solution.cpp"
 - Must define a main() test runner
 - Exactly 8 tests, named: test_case_1 ... test_case_8
+- Define a VARIADIC macro to avoid comma parsing bugs:
+  #define RUN_TEST(name, ...) do { ... __VA_ARGS__ ... } while (0)
 - Use the macro form: RUN_TEST("test_case_1", { ... });
 - Print a single line per test in this exact format:
   [PASS] test_case_1
@@ -59,7 +61,15 @@ Return a JSON object (not array) with these exact fields:
 Critical rules:
 - starter_code and reference_solution must define solve(...) (no main())
 - test_suite must #include "solution.cpp"
-- test_suite must define exactly 8 RUN_TEST("test_case_1".."test_case_8", ...) tests
+- test_suite MUST include this exact harness pattern (do not change signature):
+  static int __codem_failures = 0;
+  #define RUN_TEST(name, ...) do { \\
+    try { __VA_ARGS__; std::cout << "[PASS] " << (name) << "\\\\n"; } \\
+    catch (const std::exception& e) { std::cout << "[FAIL] " << (name) << "\\\\n"; __codem_failures++; } \\
+    catch (...) { std::cout << "[FAIL] " << (name) << "\\\\n"; __codem_failures++; } \\
+  } while (0)
+  int main(){ ... return __codem_failures ? 1 : 0; }
+- test_suite must call RUN_TEST exactly 8 times: test_case_1..test_case_8
 - Each test must assert solve(...) == expected (no print-based tests)
 - Tests must print exactly one status line per test: [PASS] test_case_N or [FAIL] test_case_N
 - No randomness, no flaky behavior

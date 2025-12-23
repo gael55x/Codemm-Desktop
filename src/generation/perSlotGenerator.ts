@@ -203,6 +203,8 @@ Hard structure rules (do not violate):
 - starter_code and reference_solution must define solve(...) (no main())
 - test_suite must #include "solution.cpp" and define main()
 - Keep exactly 8 tests: test_case_1..test_case_8 using RUN_TEST("test_case_N", { ... })
+- IMPORTANT: RUN_TEST must be a VARIADIC macro: #define RUN_TEST(name, ...) ... __VA_ARGS__ ...
+  (otherwise commas inside test blocks break compilation)
 - Tests must be deterministic and assert solve(...) == expected
 - Tests must print one line per test: [PASS] test_case_N or [FAIL] test_case_N
 
