@@ -98,6 +98,7 @@ ensure_docker_running
 ensure_image "codem-java-judge" "Dockerfile.java-judge"
 ensure_image "codem-python-judge" "Dockerfile.python-judge"
 ensure_image "codem-cpp-judge" "Dockerfile.cpp-judge"
+ensure_image "codem-sql-judge" "Dockerfile.sql-judge"
 
 echo "[3/3] Starting backend..."
 start_backend

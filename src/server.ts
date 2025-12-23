@@ -66,6 +66,8 @@ app.post("/run", async (req, res) => {
         ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/
         : lang === "cpp"
         ? /^[A-Za-z_][A-Za-z0-9_]*\.(?:cpp|h|hpp)$/
+        : lang === "sql"
+        ? /^[A-Za-z_][A-Za-z0-9_]*\.sql$/
         : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
 
     let safeStdin: string | undefined = undefined;
@@ -121,6 +123,9 @@ app.post("/run", async (req, res) => {
         if (!hasMain) {
           return res.status(400).json({ error: 'C++ /run requires a "main.cpp" file.' });
         }
+      }
+      if (lang === "sql") {
+        return res.status(400).json({ error: 'SQL does not support /run yet. Use /submit (Run tests).' });
       }
 
       const execReq: {
@@ -200,6 +205,8 @@ app.post("/submit", optionalAuth, async (req: AuthRequest, res) => {
         ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/
         : lang === "cpp"
         ? /^[A-Za-z_][A-Za-z0-9_]*\.(?:cpp|h|hpp)$/
+        : lang === "sql"
+        ? /^[A-Za-z_][A-Za-z0-9_]*\.sql$/
         : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
 
     let result;
@@ -254,6 +261,15 @@ app.post("/submit", optionalAuth, async (req: AuthRequest, res) => {
           return res.status(400).json({
             error: `C++ /submit supports "solution.cpp" plus optional headers only. Remove: ${cppSources.join(", ")}`,
           });
+        }
+      }
+      if (lang === "sql") {
+        if (!Object.prototype.hasOwnProperty.call(safeFiles, "solution.sql")) {
+          return res.status(400).json({ error: 'SQL /submit requires a "solution.sql" file.' });
+        }
+        const extras = Object.keys(safeFiles).filter((f) => f !== "solution.sql");
+        if (extras.length > 0) {
+          return res.status(400).json({ error: `SQL /submit supports only solution.sql. Remove: ${extras.join(", ")}` });
         }
       }
 
