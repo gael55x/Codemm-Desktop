@@ -3,6 +3,7 @@ import {
   CODEMM_DEFAULT_TEST_CASE_COUNT,
 } from "../contracts/activitySpec";
 import type { LanguageProfile } from "./types";
+import { cppExecutionAdapter, cppJudgeAdapter } from "./cppAdapters";
 
 export const CPP_LANGUAGE_PROFILE: LanguageProfile = {
   language: "cpp",
@@ -14,5 +15,6 @@ export const CPP_LANGUAGE_PROFILE: LanguageProfile = {
   // We'll flip these on once adapters + Docker judge are wired.
   support: { execution: false, judge: false, generation: false },
   promptHints: ["C++20", "exactly 8 tests named test_case_1..test_case_8", "no filesystem/networking"],
+  executionAdapter: cppExecutionAdapter,
+  judgeAdapter: cppJudgeAdapter,
 };
-
