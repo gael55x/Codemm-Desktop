@@ -39,12 +39,20 @@ function discardReferenceArtifacts(draft: GeneratedProblemDraft): GeneratedProbl
  */
 export async function generateProblemsFromPlan(
   plan: ProblemPlan,
-  opts?: { onProgress?: (event: GenerationProgressEvent) => void }
+  opts?: {
+    onProgress?: (event: GenerationProgressEvent) => void;
+    deps?: {
+      generateSingleProblem?: typeof generateSingleProblem;
+      validateReferenceSolution?: typeof validateReferenceSolution;
+    };
+  }
 ): Promise<{ problems: GeneratedProblem[]; outcomes: GenerationOutcome[] }> {
   const problems: GeneratedProblem[] = [];
   const outcomes: GenerationOutcome[] = [];
   const maxAttempts = 3;
   const onProgress = opts?.onProgress;
+  const generateSingleProblemFn = opts?.deps?.generateSingleProblem ?? generateSingleProblem;
+  const validateReferenceSolutionFn = opts?.deps?.validateReferenceSolution ?? validateReferenceSolution;
   const usedDomains: string[] = [];
   const usedTitles: string[] = [];
 
@@ -138,7 +146,7 @@ export async function generateProblemsFromPlan(
         onProgress?.({ type: "slot_llm_attempt_started", slotIndex: slot.index, attempt: attempts });
         onProgress?.({ type: "attempt_started", index: slot.index, attempt: attempts });
         // Step 1: Generate single problem via LLM (includes reference_solution)
-        const generated = await generateSingleProblem(slot, {
+        const generated = await generateSingleProblemFn(slot, {
           ...(repair ? { repair } : {}),
           promptContext,
         });
@@ -150,7 +158,7 @@ export async function generateProblemsFromPlan(
         // Step 2: Validate reference_solution compiles and passes tests (Docker)
         onProgress?.({ type: "slot_docker_validation_started", slotIndex: slot.index, attempt: attempts });
         onProgress?.({ type: "validation_started", index: slot.index, attempt: attempts });
-        await validateReferenceSolution(draft);
+        await validateReferenceSolutionFn(draft);
 
         // Step 3: Discard reference_solution (CRITICAL: do not persist)
         problem = discardReferenceArtifacts(draft);
