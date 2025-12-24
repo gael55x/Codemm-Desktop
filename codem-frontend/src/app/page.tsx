@@ -16,6 +16,8 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   tone?: "question" | "hint" | "info";
+  summary?: string;
+  assumptions?: string[];
 };
 
 type SlotStage = "queued" | "llm" | "contract" | "docker" | "done" | "failed";
@@ -180,10 +182,12 @@ export default function Home() {
           data.accepted
             ? data.nextQuestion
             : [data.error, data.nextQuestion].filter(Boolean).join("\n\n");
+        const summary = typeof (data as any).assistant_summary === "string" ? (data as any).assistant_summary : undefined;
+        const assumptions = Array.isArray((data as any).assumptions) ? (data as any).assumptions : undefined;
 
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", tone: assistantTone, content: assistantContent },
+          { role: "assistant", tone: assistantTone, content: assistantContent, summary, assumptions },
         ]);
       } else {
         const fallback = formatSlotPrompt(activeSlot) ?? "Please continue.";
@@ -663,6 +667,24 @@ export default function Home() {
                     </div>
                   )}
                   {m.content}
+                  {m.role === "assistant" && m.summary && (
+                    <div
+                      className={`mt-2 rounded-lg px-3 py-2 text-[11px] whitespace-pre-line ${
+                        darkMode ? "bg-slate-950/40 text-slate-200" : "bg-white/40 text-slate-700"
+                      }`}
+                    >
+                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">Summary</div>
+                      {m.summary}
+                      {Array.isArray(m.assumptions) && m.assumptions.length > 0 && (
+                        <div className="mt-2 opacity-80">
+                          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                            Assumptions
+                          </div>
+                          <div>{m.assumptions.join(" ")}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {loading &&
                     m.role === "assistant" &&
                     m.tone === "info" &&
