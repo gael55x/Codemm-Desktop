@@ -5,6 +5,7 @@ import { listAgentSelectableLanguages } from "../languages/profiles";
 import type { DialogueUpdate } from "./dialogue";
 import { selectNextGoal } from "./conversationGoals";
 import type { CommitmentStore } from "./commitments";
+import { classifyDialogueAct } from "./dialogueAct";
 
 function formatKnown(spec: SpecDraft): string {
   const parts: string[] = [];
@@ -76,23 +77,46 @@ export function generateNextPrompt(args: {
   lastUserMessage: string;
   dialogueUpdate?: DialogueUpdate | null;
 }): string {
+  return generateNextPromptPayload(args).assistant_message;
+}
+
+export type PromptPayload = {
+  assistant_message: string;
+  assistant_summary?: string;
+  assumptions?: string[];
+  next_action: "ready" | "confirm" | "restate" | "ask";
+};
+
+export function generateNextPromptPayload(args: {
+  spec: SpecDraft;
+  readiness: ReadinessResult;
+  confidence?: ConfidenceMap | null;
+  commitments?: CommitmentStore | null;
+  lastUserMessage: string;
+  dialogueUpdate?: DialogueUpdate | null;
+}): PromptPayload {
   const known = formatKnown(args.spec);
   const revisionLine = buildRevisionLine(args.dialogueUpdate);
-  const preface =
-    revisionLine || known ? `${[revisionLine, known ? `So far: ${known}.` : null].filter(Boolean).join("\n")}\n\n` : "";
+  const assistant_summary = [revisionLine, known ? `So far: ${known}.` : null].filter(Boolean).join("\n") || undefined;
+  const summaryPart = assistant_summary ? { assistant_summary } : {};
+  const act = classifyDialogueAct(args.lastUserMessage).act;
 
   if (args.readiness.ready) {
-    return preface + "Spec looks complete. You can generate the activity.";
+    return {
+      assistant_message: "Spec looks complete. You can generate the activity.",
+      ...summaryPart,
+      next_action: "ready",
+    };
   }
 
   // If schema complete but confidence is low, prefer confirmation-style prompts.
   if (args.readiness.gaps.complete && args.readiness.lowConfidenceFields.length > 0) {
     const fields = args.readiness.lowConfidenceFields.map(String);
-    return (
-      preface +
-      `Before I generate, I want to confirm ${listToSentence(fields)}.\n` +
-      `Can you confirm or adjust those?`
-    );
+    return {
+      assistant_message: `Before I generate, confirm ${listToSentence(fields)}.`,
+      ...summaryPart,
+      next_action: "confirm",
+    };
   }
 
   // If we get here, we have some invalid fields.
@@ -101,46 +125,69 @@ export function generateNextPrompt(args: {
     const first = invalidKeys[0]!;
     const msg = (args.readiness.gaps.invalid as any)[first] as string | undefined;
     const conf = confidenceHint(args.confidence ?? null, first as any);
-    return (
-      preface +
-      `I need to adjust "${first}"${conf ? ` (confidence ${conf})` : ""}: ${msg ?? "invalid value"}\n` +
-      `Can you restate what you want for that?`
-    );
+    return {
+      assistant_message: `Restate what you want for "${first}"${conf ? ` (confidence ${conf})` : ""}.`,
+      ...summaryPart,
+      next_action: "restate",
+    };
   }
 
   const nextGoal = selectNextGoal({ spec: args.spec, gaps: args.readiness.gaps, commitments: args.commitments ?? null });
   if (nextGoal === "language") {
     const langs = listAgentSelectableLanguages().map((l) => l.toUpperCase()).join(", ");
-    return preface + `Which language should we use? (${langs || "JAVA"} is available today.)`;
+    return {
+      assistant_message:
+        act === "ASK_BACK"
+          ? `To keep going, pick a language (${langs || "JAVA"}).`
+          : `Which language should we use? (${langs || "JAVA"} is available today.)`,
+      ...summaryPart,
+      next_action: "ask",
+    };
   }
   if (nextGoal === "scope") {
-    return preface + "How many problems should we build? (1–7 works well.)";
+    return {
+      assistant_message: "How many problems should we build? (1–7)",
+      ...summaryPart,
+      next_action: "ask",
+    };
   }
   if (nextGoal === "difficulty") {
     const count = typeof args.spec.problem_count === "number" ? args.spec.problem_count : null;
     if (count) {
       const countChanged = args.dialogueUpdate?.changed.problem_count != null;
-      return (
-        preface +
-        `${countChanged ? `Since the count changed, ` : ""}how should we split the difficulty for ${count} problems?\n` +
-        `Codemm requires at least 2 difficulty levels with count > 0, and the counts must sum to ${count}.\n` +
-        `Example: easy:${Math.max(1, count - 1)}, medium:1`
-      );
+      return {
+        assistant_message:
+          `${countChanged ? `Since the count changed, ` : ""}how should we split difficulty for ${count} problems?\n` +
+          `Example: easy:${Math.max(1, count - 1)}, medium:1`,
+        ...summaryPart,
+        next_action: "ask",
+      };
     }
-    return preface + "How hard should the problems be overall? (easy / medium / hard counts)";
+    return {
+      assistant_message: "How hard should the problems be overall? (easy / medium / hard counts)",
+      ...summaryPart,
+      next_action: "ask",
+    };
   }
   if (nextGoal === "content") {
-    return preface + "What should the problems focus on?\nExample: arrays, recursion, hash maps";
+    return {
+      assistant_message: "What should the problems focus on?\nExample: arrays, recursion, hash maps",
+      ...summaryPart,
+      next_action: "ask",
+    };
   }
   if (nextGoal === "checking") {
-    return (
-      preface +
-      "How should solutions be checked?\n" +
-      "- stdout (print output)\n" +
-      "- return (method returns a value)\n" +
-      "- mixed"
-    );
+    return {
+      assistant_message:
+        "How should solutions be checked?\n- stdout (print output)\n- return (method returns a value)\n- mixed",
+      ...summaryPart,
+      next_action: "ask",
+    };
   }
 
-  return preface + "What would you like this activity to focus on?";
+  return {
+    assistant_message: "What would you like this activity to focus on?",
+    ...summaryPart,
+    next_action: "ask",
+  };
 }
