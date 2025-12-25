@@ -41,6 +41,11 @@ type Problem = {
   sampleOutputs?: string[];
   difficulty?: string;
   topic_tag?: string;
+  pedagogy?: {
+    scaffold_level?: number;
+    learning_goal?: string;
+    hints_enabled?: boolean;
+  };
 };
 
 type Activity = {
@@ -81,6 +86,18 @@ function getProblemLanguage(p: Problem | null | undefined): LanguageId {
 
 function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+function countStudentTodoMarkersInText(text: string): number {
+  if (!text) return 0;
+  return (text.match(/BEGIN STUDENT TODO/g) ?? []).length;
+}
+
+function countStudentTodoMarkers(problem: Problem): number {
+  if (problem.workspace?.files?.length) {
+    return problem.workspace.files.reduce((sum, f) => sum + countStudentTodoMarkersInText(f.content), 0);
+  }
+  return countStudentTodoMarkersInText(problem.starter_code ?? problem.classSkeleton ?? "");
 }
 
 function parseJUnitTree(stdout: string): { passed: string[]; failed: string[] } {
@@ -325,6 +342,9 @@ export default function ActivityPage() {
 
   const selectedProblem = activity?.problems.find(
     (p) => p.id === selectedProblemId
+  );
+  const isGuidedActivity = Boolean(
+    activity?.problems.some((p) => p.pedagogy && typeof p.pedagogy.scaffold_level === "number")
   );
   const selectedLanguage = getProblemLanguage(selectedProblem);
 
@@ -612,7 +632,7 @@ export default function ActivityPage() {
               {activity.title}
             </h1>
             <p className="mt-1 text-xs text-slate-500">
-              Practice activity with {activity.problems.length} problems.
+              {isGuidedActivity ? "Guided" : "Practice"} activity with {activity.problems.length} problems.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -659,6 +679,11 @@ export default function ActivityPage() {
                   <span className="line-clamp-2 text-xs text-slate-500">
                     {p.description}
                   </span>
+                  {p.pedagogy && typeof p.pedagogy.scaffold_level === "number" && (
+                    <span className="mt-1 text-[11px] font-medium text-slate-600">
+                      Guided • Scaffold {p.pedagogy.scaffold_level}%
+                    </span>
+                  )}
                   <span className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                     {(p.language ?? "java").toUpperCase()}
                   </span>
@@ -671,6 +696,29 @@ export default function ActivityPage() {
                 <h3 className="text-sm font-semibold text-slate-900">
                   Description
                 </h3>
+                {selectedProblem.pedagogy && (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-700">
+                    <div className="flex flex-wrap gap-x-3 gap-y-1">
+                      {typeof selectedProblem.pedagogy.learning_goal === "string" &&
+                        selectedProblem.pedagogy.learning_goal.trim() && (
+                          <span>
+                            <span className="font-semibold text-slate-800">Learning goal:</span>{" "}
+                            {selectedProblem.pedagogy.learning_goal.trim()}
+                          </span>
+                        )}
+                      {typeof selectedProblem.pedagogy.scaffold_level === "number" && (
+                        <span>
+                          <span className="font-semibold text-slate-800">Scaffold:</span>{" "}
+                          {selectedProblem.pedagogy.scaffold_level}%
+                        </span>
+                      )}
+                      <span>
+                        <span className="font-semibold text-slate-800">TODO regions:</span>{" "}
+                        {countStudentTodoMarkers(selectedProblem)}
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <p className="whitespace-pre-line text-xs text-slate-700">
                   {selectedProblem.description}
                 </p>

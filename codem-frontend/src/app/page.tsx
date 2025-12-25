@@ -100,6 +100,17 @@ export default function Home() {
         if (data.sessionId) {
           setSessionId(data.sessionId);
         }
+        if (typeof data.nextQuestion === "string" && data.nextQuestion.trim()) {
+          setMessages([
+            {
+              role: "assistant",
+              tone: "question",
+              content: data.nextQuestion,
+              summary: typeof data.assistant_summary === "string" ? data.assistant_summary : undefined,
+              assumptions: Array.isArray(data.assumptions) ? data.assumptions : undefined,
+            },
+          ]);
+        }
       } catch (e) {
         console.error("Failed to create session:", e);
       }
@@ -620,7 +631,7 @@ export default function Home() {
                 <p className={`mb-6 max-w-md text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                   {learningMode === "practice"
                     ? "Practice Mode: generate coding problems based on your request."
-                    : "Guided Mode: learn step-by-step with scaffolded problems tailored to your progress. (Coming soon)"}
+                    : "Guided Mode: learn step-by-step with scaffolded problems tailored to your progress."}
                 </p>
                 {formatSlotPrompt(activeSlot) && (
                   <p className={`text-sm ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
@@ -819,7 +830,7 @@ export default function Home() {
                 }`}
               >
                 <option value="practice">Practice Mode</option>
-                <option value="guided">Guided Mode (Beta / Coming Soon)</option>
+                <option value="guided">Guided Mode (Beta)</option>
               </select>
             </div>
             <div className="flex items-end gap-2">
