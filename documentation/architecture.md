@@ -81,6 +81,8 @@ When a session is `READY`, `POST /sessions/:id/generate` runs:
 1) **Contract validation** for the full `ActivitySpec`: `src/contracts/activitySpec.ts`
 2) **Plan derivation**: `deriveProblemPlan()` creates deterministic “slots” (difficulty/topics/style constraints per problem)
    - `src/planner/index.ts`
+   - In **Guided Mode**, the planner also reads the user’s `LearnerProfile` to annotate slots with optional pedagogy metadata (`learning_goal`, `scaffold_level`, `hints_enabled`), without changing safety/verification.
+     - `src/services/learnerProfileService.ts`, `src/planner/pedagogy.ts`
 3) **Per-slot generation**: each slot calls the LLM to generate a `GeneratedProblemDraft`
    - `src/generation/perSlotGenerator.ts`
 4) **Problem contract validation** (strict Zod): `src/contracts/problem.ts`

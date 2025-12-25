@@ -117,6 +117,8 @@ Notes:
 
 Graded execution in Docker (requires `testSuite`). Auth is optional; authenticated requests persist a submission.
 
+If `activityId` + `problemId` are provided and belong to the authenticated user, the backend also updates that user’s `LearnerProfile` deterministically (no LLM) for Guided Mode planning.
+
 Body:
 - `language`: `java` | `python` | `cpp` | `sql`
 - `testSuite`: string (required)
