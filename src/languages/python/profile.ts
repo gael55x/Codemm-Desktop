@@ -15,6 +15,7 @@ export const PYTHON_LANGUAGE_PROFILE: LanguageProfile = {
   defaultTestCaseCount: CODEMM_DEFAULT_TEST_CASE_COUNT,
   support: { execution: true, judge: true, generation: true },
   promptHints: ["Python 3.11", "pytest (exactly 8 tests)", "stdlib only", "no I/O unless specified"],
+  scaffolding: { lineComment: "#" },
   executionAdapter: pythonExecutionAdapter,
   judgeAdapter: pythonJudgeAdapter,
   generator: {

@@ -41,6 +41,10 @@ export type LanguageProfile = {
     generation: boolean; // LLM generation + validator
   };
   promptHints: string[];
+  scaffolding?: {
+    // Line comment token used for deterministic STUDENT TODO markers.
+    lineComment: string;
+  };
   executionAdapter?: ExecutionAdapter;
   judgeAdapter?: JudgeAdapter;
   generator?: {

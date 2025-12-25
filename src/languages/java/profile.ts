@@ -15,6 +15,7 @@ export const JAVA_LANGUAGE_PROFILE: LanguageProfile = {
   defaultTestCaseCount: CODEMM_DEFAULT_TEST_CASE_COUNT,
   support: { execution: true, judge: true, generation: true },
   promptHints: ["No package declarations.", "JUnit 5 (exactly 8 @Test methods)."],
+  scaffolding: { lineComment: "//" },
   executionAdapter: javaExecutionAdapter,
   judgeAdapter: javaJudgeAdapter,
   generator: {
@@ -22,4 +23,3 @@ export const JAVA_LANGUAGE_PROFILE: LanguageProfile = {
     buildSlotPrompt: buildJavaSlotPrompt,
   },
 };
-
