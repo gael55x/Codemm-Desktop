@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Editor from "@monaco-editor/react";
 import {
@@ -202,6 +202,40 @@ export default function ActivityPage() {
   const [showTests, setShowTests] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const editorRef = useRef<any>(null);
+  const monacoRef = useRef<any>(null);
+  const todoDecorationsRef = useRef<string[]>([]);
+
+  function updateTodoDecorations(nextCode: string) {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco) return;
+
+    const lines = String(nextCode ?? "").split("\n");
+    const ranges: Array<{ start: number; end: number }> = [];
+    let open: number | null = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? "";
+      if (line.includes("BEGIN STUDENT TODO")) open = i + 1;
+      if (line.includes("END STUDENT TODO") && open != null) {
+        const end = i + 1;
+        if (end >= open) ranges.push({ start: open, end });
+        open = null;
+      }
+    }
+
+    const decorations = ranges.map((r) => ({
+      range: new monaco.Range(r.start, 1, r.end, 1),
+      options: {
+        isWholeLine: true,
+        className: "codem-student-todo-bg",
+        linesDecorationsClassName: "codem-student-todo-gutter",
+      },
+    }));
+
+    todoDecorationsRef.current = editor.deltaDecorations(todoDecorationsRef.current, decorations);
+  }
 
   function loadProblemIntoWorkspace(problem: Problem) {
     const lang = getProblemLanguage(problem);
@@ -369,6 +403,10 @@ export default function ActivityPage() {
       ? false
       : hasJavaMainMethod(entrySource);
   const isActiveReadonly = fileRoles[activeFilename] === "readonly";
+
+  useEffect(() => {
+    updateTodoDecorations(activeCode);
+  }, [activeFilename, activeCode]);
 
   const junitTree =
     result && "success" in result ? parseJUnitTree(result.stdout ?? "") : { passed: [], failed: [] };
@@ -621,6 +659,14 @@ export default function ActivityPage() {
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
+      <style jsx global>{`
+        .codem-student-todo-bg {
+          background: rgba(250, 204, 21, 0.12);
+        }
+        .codem-student-todo-gutter {
+          border-left: 3px solid rgba(250, 204, 21, 0.9);
+        }
+      `}</style>
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6">
         {/* Header */}
         <header className="mb-4 flex items-center justify-between border-b border-slate-200 pb-4">
@@ -849,6 +895,11 @@ export default function ActivityPage() {
 		                height="100%"
 		                language={selectedLanguage}
 		                value={activeCode}
+                    onMount={(editor, monaco) => {
+                      editorRef.current = editor;
+                      monacoRef.current = monaco;
+                      updateTodoDecorations(activeCode);
+                    }}
 	                onChange={(value) => {
 	                  const next = value ?? "";
 	                  if (fileRoles[activeFilename] === "readonly") return;
