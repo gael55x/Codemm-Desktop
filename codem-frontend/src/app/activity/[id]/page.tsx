@@ -65,6 +65,15 @@ type JudgeResult = {
   executionTimeMs?: number;
   exitCode?: number;
   timedOut?: boolean;
+  // Optional structured per-test details (best-effort; may be absent).
+  testCaseDetails?: Array<{
+    name: string;
+    passed: boolean;
+    input?: string;
+    expectedOutput?: string;
+    actualOutput?: string;
+    message?: string;
+  }>;
 };
 
 type RunResult = {
@@ -172,6 +181,108 @@ function normalizeDiagnostics(text: string): string {
   }
 
   return filtered.join("\n").trim();
+}
+
+type SqlSuite = {
+  schema_sql: string;
+  cases: Array<{
+    name: string;
+    seed_sql: string;
+    expected: { columns: string[]; rows: Array<Array<string | number | null>> };
+    order_matters?: boolean;
+  }>;
+};
+
+function tryParseSqlSuite(testSuite: string): SqlSuite | null {
+  if (!testSuite.trim()) return null;
+  try {
+    const parsed = JSON.parse(testSuite);
+    if (!parsed || typeof parsed !== "object") return null;
+    const schema_sql = typeof (parsed as any).schema_sql === "string" ? (parsed as any).schema_sql : "";
+    const cases = Array.isArray((parsed as any).cases) ? (parsed as any).cases : null;
+    if (!schema_sql || !cases) return null;
+    const normalized: SqlSuite["cases"] = [];
+    for (const c of cases) {
+      if (!c || typeof c !== "object") continue;
+      const name = typeof (c as any).name === "string" ? (c as any).name : "";
+      const seed_sql = typeof (c as any).seed_sql === "string" ? (c as any).seed_sql : "";
+      const expected = (c as any).expected;
+      if (!name || !seed_sql || !expected || typeof expected !== "object") continue;
+      const columns = Array.isArray(expected.columns) ? expected.columns : [];
+      const rows = Array.isArray(expected.rows) ? expected.rows : [];
+      if (columns.length === 0) continue;
+      normalized.push({
+        name,
+        seed_sql,
+        expected: { columns, rows },
+        ...(typeof (c as any).order_matters === "boolean" ? { order_matters: (c as any).order_matters } : {}),
+      });
+    }
+    return { schema_sql, cases: normalized };
+  } catch {
+    return null;
+  }
+}
+
+function formatSqlExpected(columns: string[], rows: Array<Array<string | number | null>>): string {
+  const header = columns.join("\t");
+  const body = rows.map((r) => r.map((v) => (v == null ? "NULL" : String(v))).join("\t")).join("\n");
+  return [header, body].filter(Boolean).join("\n");
+}
+
+function parseSqlMismatchBlocks(stderr: string): Array<{
+  actual?: string;
+  message: string;
+}> {
+  const text = normalizeDiagnostics(stderr);
+  if (!text) return [];
+
+  const blocks = text
+    .split(/Expected columns\/rows did not match\.\s*/g)
+    .map((b) => b.trim())
+    .filter(Boolean);
+
+  const parsePyList = (s: string | undefined): any => {
+    if (!s) return undefined;
+    const jsonish = s
+      .replace(/\bNone\b/g, "null")
+      .replace(/\bTrue\b/g, "true")
+      .replace(/\bFalse\b/g, "false")
+      .replace(/'/g, '"');
+    try {
+      return JSON.parse(jsonish);
+    } catch {
+      return undefined;
+    }
+  };
+
+  const out: Array<{ actual?: string; message: string }> = [];
+  for (const b of blocks) {
+    const actualColumnsRaw = b.match(/Actual columns:\s*([^\n]+)/)?.[1];
+    const actualRowsRaw = b.match(/Actual rows:\s*([^\n]+)/)?.[1];
+    const actualColumns = parsePyList(actualColumnsRaw);
+    const actualRows = parsePyList(actualRowsRaw);
+    const actual =
+      Array.isArray(actualColumns) && Array.isArray(actualRows)
+        ? formatSqlExpected(actualColumns, actualRows)
+        : undefined;
+    out.push({ actual, message: b });
+  }
+  return out;
+}
+
+function sortTestCaseNames(names: string[]): string[] {
+  const uniq = Array.from(new Set(names)).filter(Boolean);
+  const score = (s: string) => {
+    const m = s.match(/\btest_case_(\d+)\b/i);
+    return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
+  };
+  return uniq.sort((a, b) => {
+    const na = score(a);
+    const nb = score(b);
+    if (na !== nb) return na - nb;
+    return a.localeCompare(b);
+  });
 }
 
 export default function ActivityPage() {
@@ -571,6 +682,7 @@ export default function ActivityPage() {
           typeof data.executionTimeMs === "number" ? data.executionTimeMs : 0,
         exitCode: typeof data.exitCode === "number" ? data.exitCode : undefined,
         timedOut: typeof data.timedOut === "boolean" ? data.timedOut : undefined,
+        testCaseDetails: Array.isArray(data.testCaseDetails) ? data.testCaseDetails : undefined,
       };
 
       setResult(safeResult);
@@ -982,67 +1094,126 @@ export default function ActivityPage() {
                   </div>
                 )}
                 <div className="space-y-2">
-                  <div>
-                    <h3 className="mb-1 text-xs font-semibold text-emerald-700">Passing</h3>
-                    {passedTests.length === 0 && (
-                      <p className="text-xs text-slate-500">None</p>
-                    )}
-                    <ul className="space-y-1 text-xs text-slate-800">
-                      {passedTests.map((t) => (
-                        <li key={t}>✓ {t}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <h3 className="mb-1 text-xs font-semibold text-rose-700">Failing</h3>
-                    {failedTests.length === 0 && (
-                      <p className="text-xs text-slate-500">
-                        {result.success
-                          ? "None"
-                          : "No failing tests were reported. Open details/diagnostics — this usually means a compile error, crash, or timeout."}
-                      </p>
-                    )}
-                    {failedTests.length > 0 && (
-                      <div className="space-y-2">
-                        {failedTests.map((t) => {
-                          const info = junitFailures[t];
-                          const parsed = info?.message ? parseExpectedActual(info.message) : null;
-                          return (
-                            <div key={t} className="rounded-lg border border-rose-200 bg-rose-50 p-2">
-                              <div className="font-semibold text-rose-800">✗ {t}</div>
-                              {parsed ? (
-                                <div className="mt-1 grid gap-2 text-[11px] text-rose-900">
-                                  <div>
-                                    <div className="font-semibold">Expected</div>
-                                    <div className="rounded border border-rose-200 bg-white px-2 py-1 font-mono">
-                                      {parsed.expected === "" ? "(empty)" : parsed.expected}
+                  {(() => {
+                    const all = sortTestCaseNames([...passedTests, ...failedTests]);
+
+                    const suite = selectedLanguage === "sql" ? tryParseSqlSuite(testSuite) : null;
+                    const sqlByName = new Map<string, { input: string; expected: string }>();
+                    if (suite) {
+                      for (const c of suite.cases) {
+                        sqlByName.set(c.name, {
+                          input: [`-- schema_sql`, suite.schema_sql.trim(), `\n-- seed_sql`, c.seed_sql.trim()]
+                            .filter(Boolean)
+                            .join("\n"),
+                          expected: formatSqlExpected(c.expected.columns, c.expected.rows),
+                        });
+                      }
+                    }
+
+                    const sqlMismatchBlocks =
+                      selectedLanguage === "sql" ? parseSqlMismatchBlocks(result.stderr || "") : [];
+                    const sqlFailNames = sortTestCaseNames(failedTests);
+                    const sqlExtraByFailName = new Map<string, { actual?: string; message?: string }>();
+                    if (selectedLanguage === "sql" && sqlMismatchBlocks.length > 0) {
+                      for (let i = 0; i < Math.min(sqlFailNames.length, sqlMismatchBlocks.length); i++) {
+                        const name = sqlFailNames[i]!;
+                        const b = sqlMismatchBlocks[i]!;
+                        sqlExtraByFailName.set(name, { actual: b.actual, message: b.message });
+                      }
+                    }
+
+                    return (
+                      <div>
+                        <h3 className="mb-2 text-xs font-semibold text-slate-900">Test cases</h3>
+                        {all.length === 0 && (
+                          <p className="text-xs text-slate-500">
+                            {result.success
+                              ? "None"
+                              : "No tests were reported. Open details/diagnostics — this usually means a compile error, crash, or timeout."}
+                          </p>
+                        )}
+                        <div className="space-y-2">
+                          {all.map((t) => {
+                            const passed = passedTests.includes(t);
+                            const junitInfo = junitFailures[t];
+                            const junitParsed = junitInfo?.message ? parseExpectedActual(junitInfo.message) : null;
+
+                            const suiteInfo = sqlByName.get(t);
+                            const sqlExtra = sqlExtraByFailName.get(t);
+
+                            const fromStructured = result.testCaseDetails?.find((x) => x.name === t);
+
+                            const input = suiteInfo?.input ?? fromStructured?.input;
+                            const expectedOutput = suiteInfo?.expected ?? (junitParsed ? junitParsed.expected : undefined) ?? fromStructured?.expectedOutput;
+                            const actualOutput = sqlExtra?.actual ?? (junitParsed ? junitParsed.actual : undefined) ?? fromStructured?.actualOutput;
+                            const message = junitInfo?.message ?? sqlExtra?.message ?? fromStructured?.message;
+
+                            return (
+                              <details
+                                key={t}
+                                className={`group rounded-lg border p-2 ${
+                                  passed ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"
+                                }`}
+                              >
+                                <summary className="cursor-pointer list-none select-none">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className={`font-semibold ${passed ? "text-emerald-800" : "text-rose-800"}`}>
+                                      {passed ? "✓" : "✗"} {t}
+                                    </div>
+                                    <div className="text-[11px] text-slate-600 group-open:hidden">Show</div>
+                                    <div className="hidden text-[11px] text-slate-600 group-open:block">Hide</div>
+                                  </div>
+                                </summary>
+                                <div className="mt-2 space-y-2">
+                                  <div className="grid gap-2 md:grid-cols-2">
+                                    <div className="rounded border border-slate-200 bg-white p-2">
+                                      <div className="text-[11px] font-semibold text-slate-900">Expected input</div>
+                                      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                                        {input || "(not available)"}
+                                      </pre>
+                                    </div>
+                                    <div className="rounded border border-slate-200 bg-white p-2">
+                                      <div className="text-[11px] font-semibold text-slate-900">Your input</div>
+                                      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                                        {input || "(not available)"}
+                                      </pre>
                                     </div>
                                   </div>
-                                  <div>
-                                    <div className="font-semibold">Your Output</div>
-                                    <div className="rounded border border-rose-200 bg-white px-2 py-1 font-mono">
-                                      {parsed.actual === "" ? "(empty)" : parsed.actual}
+                                  <div className="grid gap-2 md:grid-cols-2">
+                                    <div className="rounded border border-slate-200 bg-white p-2">
+                                      <div className="text-[11px] font-semibold text-slate-900">Expected output</div>
+                                      <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                                        {expectedOutput || "(not available)"}
+                                      </pre>
+                                    </div>
+                                    <div className="rounded border border-slate-200 bg-white p-2">
+                                      <div className="text-[11px] font-semibold text-slate-900">Your output</div>
+                                      <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                                        {actualOutput || "(not available)"}
+                                      </pre>
                                     </div>
                                   </div>
+                                  {message && (
+                                    <div className="rounded border border-slate-200 bg-white p-2">
+                                      <div className="text-[11px] font-semibold text-slate-900">Notes</div>
+                                      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                                        {message}
+                                      </pre>
+                                      {junitInfo?.location && (
+                                        <div className="mt-2 text-[11px] text-slate-600">
+                                          Location: <span className="font-mono">{junitInfo.location}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
-                              ) : (
-                                info?.message && (
-                                  <div className="mt-1 font-mono text-[11px] text-rose-900">
-                                    {info.message}
-                                  </div>
-                                )
-                              )}
-                              {info?.location && (
-                                <div className="mt-1 text-[11px] text-rose-800">
-                                  Location: <span className="font-mono">{info.location}</span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                              </details>
+                            );
+                          })}
+                        </div>
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
                 </div>
                   <div className="flex flex-wrap gap-2 pt-1">
                     <button
