@@ -34,6 +34,8 @@ import { DEFAULT_LEARNING_MODE, LearningModeSchema, type LearningMode } from "..
 import { computeConfirmRequired } from "../agent/fieldCommitmentPolicy";
 import { classifyDialogueAct } from "../agent/dialogueAct";
 import { defaultPatchForGoal } from "../agent/deferDefaults";
+import { getLearnerProfile } from "./learnerProfileService";
+import { buildGuidedPedagogyPolicy } from "../planner/pedagogy";
 
 export type SessionRecord = {
   id: string;
@@ -934,7 +936,10 @@ export async function generateFromSession(
 
     for (let attempt = 0; attempt < 2 && !problems; attempt++) {
       // Derive ProblemPlan (always from current spec)
-      const pedagogyPolicy = learning_mode === "guided" ? { mode: "guided" as const } : undefined;
+      const pedagogyPolicy =
+        learning_mode === "guided"
+          ? buildGuidedPedagogyPolicy({ spec, learnerProfile: getLearnerProfile({ userId, language: spec.language }) })
+          : undefined;
       const plan = deriveProblemPlan(spec, pedagogyPolicy);
       sessionDb.setPlanJson(sessionId, JSON.stringify(plan));
       publishGenerationProgress(sessionId, {
