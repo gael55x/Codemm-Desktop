@@ -382,24 +382,22 @@ export async function processSessionMessage(
 	    const collector = getCollectorState(sessionId);
 	    const currentQuestionKey = collector.currentQuestionKey;
 
-	    let deterministicPatch: Record<string, unknown> = {};
-	    if (currentQuestionKey === "difficulty_plan") {
+		    let deterministicPatch: Record<string, unknown> = {};
 	      const currentProblemCount = (specWithFixed as any).problem_count;
-	      const parsed = parseDifficultyPlanShorthand({
+	      const parsedDifficulty = parseDifficultyPlanShorthand({
 	        text: message,
 	        ...(typeof currentProblemCount === "number" && Number.isFinite(currentProblemCount)
 	          ? { currentProblemCount }
 	          : {}),
 	      });
-	      if (parsed) {
-	        deterministicPatch = parsed.patch as any;
+	      if (parsedDifficulty) {
+	        deterministicPatch = parsedDifficulty.patch as any;
 	        trace("session.difficulty_plan.parsed_shorthand", {
 	          sessionId,
-	          explicitTotal: parsed.explicitTotal,
-	          keys: Object.keys(parsed.patch),
+	          explicitTotal: parsedDifficulty.explicitTotal,
+	          keys: Object.keys(parsedDifficulty.patch),
 	        });
 	      }
-	    }
 	
 	    const dialogue = await runDialogueTurn({
 	      sessionState: state,
@@ -428,11 +426,16 @@ export async function processSessionMessage(
 	    const mergedProposed: Record<string, unknown> =
 	      Object.keys(deterministicPatch).length > 0 ? { ...proposed, ...deterministicPatch } : proposed;
 
-    const needsConfirmationFields = userConfirmedPending
-      ? []
-      : Array.isArray(dialogue.needsConfirmation)
-      ? dialogue.needsConfirmation
-      : [];
+	    let needsConfirmationFields = userConfirmedPending
+	      ? []
+	      : Array.isArray(dialogue.needsConfirmation)
+	      ? dialogue.needsConfirmation
+	      : [];
+
+	    // Deterministic parsing is treated as explicit; never force confirmation for difficulty_plan.
+	    if (Object.prototype.hasOwnProperty.call(deterministicPatch, "difficulty_plan")) {
+	      needsConfirmationFields = needsConfirmationFields.filter((f) => f !== "difficulty_plan");
+	    }
 
     if (userConfirmedPending) {
       trace("session.confirmation.resolved", {

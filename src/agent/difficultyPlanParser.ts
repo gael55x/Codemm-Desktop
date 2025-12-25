@@ -11,14 +11,6 @@ function makeEmptyCounts(): Counts {
   return { easy: 0, medium: 0, hard: 0 };
 }
 
-function nonZeroDifficulties(c: Counts): Difficulty[] {
-  const out: Difficulty[] = [];
-  if (c.easy > 0) out.push("easy");
-  if (c.medium > 0) out.push("medium");
-  if (c.hard > 0) out.push("hard");
-  return out;
-}
-
 function parseExplicitCounts(lower: string): Counts {
   const counts = makeEmptyCounts();
 
@@ -60,40 +52,6 @@ function dominantDifficultyFromText(lower: string): Difficulty | null {
   return null;
 }
 
-function coerceToMixedPlan(counts: Counts, total: number): Counts | null {
-  const totalCount = clampInt(total, 1, 7);
-  if (totalCount < 2) return null;
-
-  const nz = nonZeroDifficulties(counts);
-  if (nz.length >= 2) return counts;
-
-  const only = nz[0] ?? "easy";
-  const out = makeEmptyCounts();
-
-  if (only === "easy") {
-    out.easy = totalCount - 1;
-    out.medium = 1;
-    return out;
-  }
-
-  if (only === "hard") {
-    out.hard = totalCount - 1;
-    out.medium = 1;
-    return out;
-  }
-
-  // medium-only
-  if (totalCount === 2) {
-    out.easy = 1;
-    out.medium = 1;
-    return out;
-  }
-  out.easy = 1;
-  out.hard = 1;
-  out.medium = totalCount - 2;
-  return out;
-}
-
 function buildPlanArray(counts: Counts): Array<{ difficulty: Difficulty; count: number }> {
   const plan: Array<{ difficulty: Difficulty; count: number }> = [];
   if (counts.easy > 0) plan.push({ difficulty: "easy", count: counts.easy });
@@ -105,8 +63,8 @@ function buildPlanArray(counts: Counts): Array<{ difficulty: Difficulty; count: 
 /**
  * Deterministically parses common shorthand difficulty answers into a contract-valid difficulty_plan.
  *
- * Note: Codemm's contract requires the plan be "mixed" (>=2 non-zero difficulties), so inputs like
- * "easy" or "easy:4" are interpreted as "easy overall" by producing a minimally-mixed plan.
+ * Note: difficulty_plan may be single-bucket ("all easy"/"all hard") or any mixture; the only
+ * invariant enforced at the schema level is that counts sum to problem_count (when both exist).
  */
 export function parseDifficultyPlanShorthand(args: {
   text: string;
@@ -125,13 +83,10 @@ export function parseDifficultyPlanShorthand(args: {
   // If the user gave explicit per-difficulty counts, total is the sum.
   if (hasPairs) {
     if (pairSum < 1 || pairSum > 7) return null;
-    const mixed = coerceToMixedPlan(countsFromPairs, pairSum);
-    if (!mixed) return null;
-    const plan = buildPlanArray(mixed);
+    const plan = buildPlanArray(countsFromPairs);
+    if (plan.length < 1) return null;
     const patch: Partial<ActivitySpec> = { difficulty_plan: plan };
-    if (args.currentProblemCount == null || args.currentProblemCount !== pairSum) {
-      patch.problem_count = pairSum;
-    }
+    if (args.currentProblemCount == null || args.currentProblemCount !== pairSum) patch.problem_count = pairSum;
     return { patch, explicitTotal: true };
   }
 
@@ -145,19 +100,11 @@ export function parseDifficultyPlanShorthand(args: {
   const inferredTotal = explicitTotal ? Number(num![1]) : args.currentProblemCount;
   if (!inferredTotal || !Number.isFinite(inferredTotal)) return null;
   const total = clampInt(inferredTotal, 1, 7);
-  if (total < 2) return null;
 
-  const base = makeEmptyCounts();
-  base[dominant] = total;
-  const mixed = coerceToMixedPlan(base, total);
-  if (!mixed) return null;
-
-  const plan = buildPlanArray(mixed);
-  const patch: Partial<ActivitySpec> = { difficulty_plan: plan };
+  const patch: Partial<ActivitySpec> = { difficulty_plan: [{ difficulty: dominant, count: total }] };
   if (explicitTotal && (args.currentProblemCount == null || args.currentProblemCount !== total)) {
     patch.problem_count = total;
   }
 
   return { patch, explicitTotal };
 }
-
