@@ -259,7 +259,7 @@ function replaceJavaMethodBodies(args: {
   lineComment: string;
   scaffoldLevel: number;
   learningGoal?: string | undefined;
-}): { code: string; replacedCount: number } {
+}): { code: string; replaced: JavaMethodBody[] } {
   let out = args.source;
   const sorted = [...args.methodsToScaffold].sort((a, b) => b.openBrace - a.openBrace);
 
@@ -287,7 +287,7 @@ function replaceJavaMethodBodies(args: {
     out = out.slice(0, open + 1) + body + out.slice(close);
   }
 
-  return { code: out, replacedCount: sorted.length };
+  return { code: out, replaced: sorted };
 }
 
 function scaffoldJavaFromReference(args: {
@@ -295,12 +295,12 @@ function scaffoldJavaFromReference(args: {
   scaffoldLevel: number;
   lineComment: string;
   learningGoal?: string | undefined;
-}): { code: string; replacedCount: number } {
+}): { code: string; replaced: JavaMethodBody[] } {
   const marker = `${args.lineComment} BEGIN STUDENT TODO`;
-  if (args.reference.includes(marker)) return { code: args.reference, replacedCount: 0 };
+  if (args.reference.includes(marker)) return { code: args.reference, replaced: [] };
 
   const methods = scanJavaMethodBodies(args.reference).filter((m) => m.name !== "main");
-  if (methods.length === 0) return { code: args.reference, replacedCount: 0 };
+  if (methods.length === 0) return { code: args.reference, replaced: [] };
 
   const missingFraction = Math.max(0, Math.min(1, 1 - args.scaffoldLevel));
   const targetCount = Math.max(1, Math.min(methods.length, Math.ceil(methods.length * missingFraction)));
@@ -523,7 +523,7 @@ export function applyGuidedScaffolding(draft: GeneratedProblemDraft, slot: Probl
         language: draft.language,
         kind: "starter_code",
         scaffoldLevel: level,
-        replacedCount: scaffolded.replacedCount,
+        replacedCount: scaffolded.replaced.length,
       });
       return { ...draft, starter_code: scaffolded.code };
     }
@@ -531,6 +531,13 @@ export function applyGuidedScaffolding(draft: GeneratedProblemDraft, slot: Probl
     const entryPaths = new Set(
       draft.reference_workspace.files.filter((f) => f.role === "entry").map((f) => f.path)
     );
+
+    const scaffolded_regions: Array<{
+      path: string;
+      symbol?: string;
+      begin_marker: string;
+      end_marker: string;
+    }> = [];
 
     const nextFiles = draft.reference_workspace.files.map((f) => {
       if (entryPaths.has(f.path)) return f;
@@ -540,6 +547,14 @@ export function applyGuidedScaffolding(draft: GeneratedProblemDraft, slot: Probl
         lineComment,
         learningGoal,
       });
+      for (const m of scaffolded.replaced) {
+        scaffolded_regions.push({
+          path: f.path,
+          symbol: m.name,
+          begin_marker: `${lineComment} BEGIN STUDENT TODO`,
+          end_marker: `${lineComment} END STUDENT TODO`,
+        });
+      }
       return { ...f, content: scaffolded.code };
     });
 
@@ -549,12 +564,13 @@ export function applyGuidedScaffolding(draft: GeneratedProblemDraft, slot: Probl
       kind: "workspace",
       scaffoldLevel: level,
       files: nextFiles.length,
+      regions: scaffolded_regions.length,
     });
 
     return {
       ...draft,
       // Derive the student-facing workspace from the validated reference workspace.
-      workspace: { ...draft.reference_workspace, files: nextFiles },
+      workspace: { ...draft.reference_workspace, files: nextFiles, scaffolded_regions },
     };
   }
 
