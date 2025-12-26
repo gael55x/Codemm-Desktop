@@ -587,10 +587,8 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <button
               onClick={toggleDarkMode}
-              className={`flex h-10 w-10 items-center justify-center rounded-full border transition ${
-                darkMode
-                  ? "border-slate-800 bg-slate-900 text-slate-200 hover:border-slate-700"
-                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+              className={`flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-base transition ${
+                darkMode ? "text-slate-200 hover:text-white" : "text-slate-600 hover:text-slate-900"
               }`}
               aria-label="Toggle dark mode"
             >
@@ -618,9 +616,7 @@ export default function Home() {
               <button
                 onClick={() => router.push("/profile")}
                 className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                  darkMode
-                    ? "border border-slate-800 bg-slate-900 text-slate-200 hover:border-slate-700"
-                    : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                  darkMode ? "bg-transparent text-slate-200 hover:text-white" : "bg-transparent text-slate-700 hover:text-slate-900"
                 }`}
               >
                 {displayName}
@@ -629,25 +625,12 @@ export default function Home() {
               <button
                 onClick={() => router.push("/auth/login")}
                 className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                  darkMode
-                    ? "border border-slate-800 bg-slate-900 text-slate-200 hover:border-slate-700"
-                    : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                  darkMode ? "bg-transparent text-slate-200 hover:text-white" : "bg-transparent text-slate-700 hover:text-slate-900"
                 }`}
               >
                 Log in
               </button>
             )}
-            <button
-              onClick={handleGenerate}
-              disabled={!specReady || isBusy}
-              className={`rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${
-                darkMode
-                  ? "bg-sky-600 hover:bg-sky-500 disabled:bg-slate-800"
-                  : "bg-slate-900 hover:bg-black disabled:bg-slate-300"
-              } disabled:cursor-not-allowed disabled:opacity-60`}
-            >
-              {loading ? "Generating..." : "Generate"}
-            </button>
           </div>
         </header>
 
@@ -698,46 +681,14 @@ export default function Home() {
                 darkMode ? "border-slate-800 bg-slate-900/70" : "border-slate-200 bg-white/85"
               }`}
             >
-              <div
-                className={`flex items-center justify-between rounded-t-[28px] border-b px-5 py-3 text-xs ${
-                  darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 11 5 7m0 0 4-4M5 7h7a7 7 0 0 1 0 14h-2" />
-                    </svg>
-                  </span>
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="m15 11 4-4m0 0-4-4m4 4h-7a7 7 0 1 0 0 14h2" />
-                    </svg>
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {specReady && (
-                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
-                      Spec ready
-                    </span>
-                  )}
-                  {loading && (
-                    <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-300">
-                      <span className="h-3 w-3 animate-spin rounded-full border border-slate-300 border-t-sky-500 dark:border-slate-700 dark:border-t-sky-300" />
-                      <span>Generating</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="max-h-80 space-y-3 overflow-y-auto px-5 py-4">
+              <div className="max-h-80 space-y-3 overflow-y-auto px-5 py-5">
                 {messages.length === 0 && (
                   <div
                     className={`rounded-2xl border px-4 py-3 text-sm ${
                       darkMode ? "border-slate-800 bg-slate-900/60 text-slate-200" : "border-slate-200 bg-slate-50 text-slate-700"
                     }`}
                   >
-                    Ask any math question and Codemm will walk you through it. Start typing below or pick a quick action.
+                    Ask any coding question and Codemm will walk you through it. Start typing below or pick a quick action.
                   </div>
                 )}
 
@@ -905,7 +856,7 @@ export default function Home() {
               </div>
 
               <div
-                className={`rounded-b-[28px] border-t px-5 py-4 ${
+                className={`rounded-b-[28px] px-5 py-4 ${
                   darkMode ? "border-slate-800" : "border-slate-200"
                 }`}
               >
@@ -915,7 +866,7 @@ export default function Home() {
                       ? "border-slate-800 bg-slate-900 text-slate-100 placeholder-slate-500 focus:border-sky-400 focus:ring-sky-400"
                       : "border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:ring-sky-500"
                   }`}
-                  placeholder="Ask any math question..."
+                  placeholder="Start solving..."
                   rows={3}
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
@@ -932,6 +883,17 @@ export default function Home() {
                   
 
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleGenerate}
+                      disabled={!specReady || isBusy}
+                      className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${
+                        darkMode
+                          ? "bg-sky-600 hover:bg-sky-500 disabled:bg-slate-800"
+                          : "bg-slate-900 hover:bg-black disabled:bg-slate-300"
+                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                    >
+                      {loading ? "Generating..." : "Generate"}
+                    </button>
                     <button
                       onClick={handleChatSend}
                       disabled={chatLoading || !chatInput.trim() || specReady}
