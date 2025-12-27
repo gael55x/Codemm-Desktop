@@ -42,6 +42,18 @@ type GenerationProgressState = {
 
 type LearningMode = "practice" | "guided";
 
+type SessionSummary = {
+  id: string;
+  state: string;
+  learning_mode: LearningMode;
+  created_at: string;
+  updated_at: string;
+  activity_id: string | null;
+  last_message: string | null;
+  last_message_at: string | null;
+  message_count: number;
+};
+
 export default function Home() {
   const router = useRouter();
   const { interpretResponse, formatSlotPrompt, normalizeInput, activeSlot } = useSpecBuilderUX();
@@ -52,6 +64,10 @@ export default function Home() {
   const [chatLoading, setChatLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [sessionHistory, setSessionHistory] = useState<SessionSummary[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [learningMode, setLearningMode] = useState<LearningMode>("practice");
@@ -68,6 +84,147 @@ export default function Home() {
     }
   };
 
+  function cleanupStreams() {
+    try {
+      progressRef.current?.close();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function startNewSession(mode: LearningMode) {
+    try {
+      cleanupStreams();
+      setLearningMode(mode);
+      setSessionId(null);
+      setSpecReady(false);
+      setProgress(null);
+      setProgressHint(null);
+      setGenerationLocked(false);
+      setMessages([]);
+      setChatInput("");
+      setHasInteracted(false);
+
+      const token = localStorage.getItem("codem-token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch(`${BACKEND_URL}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ learning_mode: mode }),
+      });
+      const data = await res.json();
+
+      if (typeof data?.sessionId === "string") {
+        setSessionId(data.sessionId);
+        localStorage.setItem("codem-last-session-id", data.sessionId);
+        localStorage.setItem("codem-last-learning-mode", mode);
+      }
+
+      if (typeof data?.nextQuestion === "string" && data.nextQuestion.trim()) {
+        setMessages([
+          {
+            role: "assistant",
+            tone: "question",
+            content: data.nextQuestion,
+            summary: typeof data.assistant_summary === "string" ? data.assistant_summary : undefined,
+            assumptions: Array.isArray(data.assumptions) ? data.assumptions : undefined,
+          },
+        ]);
+      }
+    } catch (e) {
+      console.error("Failed to create session:", e);
+    }
+  }
+
+  async function loadSession(existingSessionId: string) {
+    try {
+      cleanupStreams();
+      setSessionId(null);
+      setSpecReady(false);
+      setProgress(null);
+      setProgressHint(null);
+      setGenerationLocked(false);
+      setMessages([]);
+      setChatInput("");
+      setHasInteracted(false);
+
+      const token = localStorage.getItem("codem-token");
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch(`${BACKEND_URL}/sessions/${existingSessionId}`, { headers });
+      if (!res.ok) {
+        throw new Error(`Failed to load session (${res.status})`);
+      }
+      const data = await res.json();
+
+      const mode: LearningMode = data?.learning_mode === "guided" ? "guided" : "practice";
+      setLearningMode(mode);
+      setSessionId(existingSessionId);
+      localStorage.setItem("codem-last-session-id", existingSessionId);
+      localStorage.setItem("codem-last-learning-mode", mode);
+
+      const state = String(data?.state ?? "");
+      setSpecReady(state === "READY" || state === "GENERATING" || state === "SAVED");
+      setGenerationLocked(state === "GENERATING");
+
+      if (Array.isArray(data?.messages)) {
+        const loaded: ChatMessage[] = data.messages
+          .map((m: any) => {
+            const role = m?.role === "assistant" ? "assistant" : "user";
+            const content = typeof m?.content === "string" ? m.content : "";
+            if (!content.trim()) return null;
+            return { role, content } satisfies ChatMessage;
+          })
+          .filter(Boolean) as ChatMessage[];
+        setMessages(loaded);
+        setHasInteracted(loaded.length > 0);
+      }
+    } catch (e) {
+      console.error("Failed to load session:", e);
+      const storedMode = localStorage.getItem("codem-last-learning-mode");
+      const fallbackMode: LearningMode = storedMode === "guided" ? "guided" : "practice";
+      await startNewSession(fallbackMode);
+    }
+  }
+
+  async function fetchSessionHistory(limit: number = 30) {
+    const token = localStorage.getItem("codem-token");
+    if (!token) {
+      setSessionHistory([]);
+      return;
+    }
+
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/sessions?limit=${encodeURIComponent(String(limit))}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem("codem-token");
+        localStorage.removeItem("codem-user");
+        setUser(null);
+        setSessionHistory([]);
+        return;
+      }
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to load chat history");
+      }
+
+      setSessionHistory(Array.isArray(data?.sessions) ? data.sessions : []);
+    } catch (e: any) {
+      setHistoryError(e?.message ?? "Failed to load chat history");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   useEffect(() => {
     const stored = localStorage.getItem("codem-theme");
     if (stored === "dark") {
@@ -81,60 +238,21 @@ export default function Home() {
       setUser(JSON.parse(storedUser));
     }
 
+    const storedMode = localStorage.getItem("codem-last-learning-mode");
+    const initialMode: LearningMode = storedMode === "guided" ? "guided" : "practice";
+    setLearningMode(initialMode);
+
+    const storedSessionId = localStorage.getItem("codem-last-session-id");
+    if (storedSessionId) {
+      void loadSession(storedSessionId);
+    } else {
+      void startNewSession(initialMode);
+    }
   }, []);
 
   useEffect(() => {
-    // Create a new session (mode is set at creation time).
-    async function initSession() {
-      try {
-        try {
-          progressRef.current?.close();
-        } catch {
-          // ignore
-        }
-        setSessionId(null);
-        setSpecReady(false);
-        setProgress(null);
-        setProgressHint(null);
-        setGenerationLocked(false);
-        setMessages([]);
-        setChatInput("");
-        setHasInteracted(false);
-
-        const res = await fetch(`${BACKEND_URL}/sessions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ learning_mode: learningMode }),
-        });
-        const data = await res.json();
-        if (data.sessionId) {
-          setSessionId(data.sessionId);
-        }
-        if (typeof data.nextQuestion === "string" && data.nextQuestion.trim()) {
-          setMessages([
-            {
-              role: "assistant",
-              tone: "question",
-              content: data.nextQuestion,
-              summary: typeof data.assistant_summary === "string" ? data.assistant_summary : undefined,
-              assumptions: Array.isArray(data.assumptions) ? data.assumptions : undefined,
-            },
-          ]);
-        }
-      } catch (e) {
-        console.error("Failed to create session:", e);
-      }
-    }
-    initSession();
-  }, [learningMode]);
-
-  useEffect(() => {
     return () => {
-      try {
-        progressRef.current?.close();
-      } catch {
-        // ignore
-      }
+      cleanupStreams();
     };
   }, []);
 
@@ -187,9 +305,13 @@ export default function Home() {
     setChatLoading(true);
 
     try {
+      const token = localStorage.getItem("codem-token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
       const res = await fetch(`${BACKEND_URL}/sessions/${sessionId}/messages`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ message: normalized.value }),
       });
       const data = await res.json();
@@ -545,7 +667,7 @@ export default function Home() {
   }
 
   const isBusy = chatLoading || loading;
-  const isPromptExpanded = hasInteracted || chatInput.trim().length > 0;
+  const isPromptExpanded = hasInteracted || chatInput.trim().length > 0 || messages.length > 0;
   const displayName =
     (typeof user?.displayName === "string" && user.displayName.trim()
       ? user.displayName
@@ -605,6 +727,115 @@ export default function Home() {
 
 
           <div className="flex items-center gap-3">
+            {user && (
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    const next = !historyOpen;
+                    setHistoryOpen(next);
+                    if (next) void fetchSessionHistory();
+                  }}
+                  className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                    darkMode
+                      ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                      : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  History
+                </button>
+                {historyOpen && (
+                  <div
+                    className={`absolute right-0 z-20 mt-2 w-[360px] overflow-hidden rounded-2xl border shadow-lg ${
+                      darkMode ? "border-slate-700 bg-slate-900" : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    <div className={`flex items-center justify-between border-b px-4 py-3 ${darkMode ? "border-slate-700" : "border-slate-200"}`}>
+                      <div className={`text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Past chats</div>
+                      <button
+                        onClick={() => setHistoryOpen(false)}
+                        className={`rounded-lg px-2 py-1 text-xs transition ${
+                          darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    <div className="px-4 py-3">
+                      <button
+                        onClick={() => {
+                          setHistoryOpen(false);
+                          void startNewSession(learningMode);
+                        }}
+                        className={`w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition ${
+                          darkMode ? "bg-slate-800 text-slate-100 hover:bg-slate-700" : "bg-slate-100 text-slate-900 hover:bg-slate-200"
+                        }`}
+                      >
+                        New chat
+                      </button>
+
+                      {historyLoading && (
+                        <div className={`mt-3 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                          Loading…
+                        </div>
+                      )}
+                      {historyError && (
+                        <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${darkMode ? "bg-rose-900/30 text-rose-200" : "bg-rose-50 text-rose-900"}`}>
+                          {historyError}
+                        </div>
+                      )}
+
+                      {!historyLoading && !historyError && (
+                        <div className="mt-3 max-h-[360px] space-y-2 overflow-y-auto">
+                          {sessionHistory.length === 0 && (
+                            <div className={`rounded-xl border px-3 py-3 text-xs ${darkMode ? "border-slate-700 text-slate-400" : "border-slate-200 text-slate-500"}`}>
+                              No saved chats yet. Start a chat while logged in and it will show up here.
+                            </div>
+                          )}
+                          {sessionHistory.map((s) => {
+                            const when = s.last_message_at || s.updated_at;
+                            const whenText = when ? new Date(when).toLocaleDateString() : "";
+                            const preview =
+                              (typeof s.last_message === "string" && s.last_message.trim()
+                                ? s.last_message
+                                : `Session ${s.id.slice(0, 8)}…`) as string;
+                            return (
+                              <button
+                                key={s.id}
+                                onClick={() => {
+                                  setHistoryOpen(false);
+                                  void loadSession(s.id);
+                                }}
+                                className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+                                  darkMode
+                                    ? "border-slate-700 hover:bg-slate-800"
+                                    : "border-slate-200 hover:bg-slate-50"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className={`text-xs font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
+                                    {s.learning_mode === "guided" ? "Guided" : "Practice"} • {s.state}
+                                  </div>
+                                  <div className={`text-[11px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                                    {whenText}
+                                  </div>
+                                </div>
+                                <div className={`mt-1 truncate text-xs ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
+                                  {preview}
+                                </div>
+                                <div className={`mt-1 text-[11px] ${darkMode ? "text-slate-500" : "text-slate-500"}`}>
+                                  {s.message_count} messages
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <button
               onClick={toggleDarkMode}
               className={`flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-base transition ${
@@ -685,7 +916,7 @@ export default function Home() {
                         );
                         if (!ok) return;
                       }
-                      setLearningMode(mode);
+                      void startNewSession(mode);
                     }}
                     disabled={generationLocked || isBusy}
                     className={`rounded-full border px-4 py-2 capitalize transition ${
@@ -890,14 +1121,13 @@ export default function Home() {
                   </div>
                 )}
               </div>
-
               <div
                 className={`rounded-b-[28px] px-5 py-4 ${
                   darkMode ? "border-slate-800" : "border-slate-200"
                 }`}
               >
                 <textarea
-                className={`w-full resize-none rounded-2xl border px-4 py-3 text-sm outline-none transition focus:ring-1 ${
+                  className={`w-full resize-none rounded-2xl border px-4 py-3 text-sm outline-none transition focus:ring-1 ${
                     darkMode
                       ? "border-slate-800 bg-slate-900 text-slate-100 placeholder-slate-500 focus:border-sky-400 focus:ring-sky-400"
                       : "border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:ring-sky-500"
@@ -923,8 +1153,6 @@ export default function Home() {
                 />
 
                 <div className="mt-3 flex flex-col items-end gap-3 sm:flex-row sm:items-center sm:justify-end">
-                  
-
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleGenerate}
@@ -956,7 +1184,7 @@ export default function Home() {
                 {specReady && (
                   <div
                     className={`mt-3 rounded-lg px-4 py-2 text-xs ${
-                      darkMode ? "bg-emerald-900/30 texAt-emerald-200" : "bg-emerald-50 text-emerald-700"
+                      darkMode ? "bg-emerald-900/30 text-emerald-200" : "bg-emerald-50 text-emerald-700"
                     }`}
                   >
                     Activity spec is ready. Click "Generate" to create problems.
