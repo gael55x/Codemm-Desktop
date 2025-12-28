@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
 
 type Problem = {
   id: string;
@@ -54,6 +55,8 @@ export default function ActivityReviewPage() {
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  const [tourOpen, setTourOpen] = useState(false);
 
   const shareUrl = useMemo(() => {
     if (typeof window === "undefined") return null;
@@ -264,9 +267,57 @@ export default function ActivityReviewPage() {
 
   const isDraft = (activity.status ?? "PUBLISHED") === "DRAFT";
 
+  const tourSteps: TourStep[] = [
+    {
+      id: "settings",
+      selector: '[data-tour="draft-settings"]',
+      title: "Edit the draft settings",
+      body: "Change the title and timer anytime before publishing.",
+    },
+    {
+      id: "save",
+      selector: '[data-tour="draft-save"]',
+      title: "Save your draft",
+      body: "Save after making edits so they’re persisted.",
+    },
+    {
+      id: "ai-edit",
+      selector: '[data-tour="draft-ai-edit"]',
+      title: "Edit a problem with AI",
+      body: "Use AI edit to regenerate that specific problem and update its test cases.",
+    },
+    {
+      id: "publish",
+      selector: '[data-tour="draft-publish"]',
+      title: "Publish when ready",
+      body: "Publishing makes the activity shareable. Draft activities stay private.",
+    },
+  ];
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isDraft) return;
+    const key = "codem-tutorial-draft-review-v1";
+    if (localStorage.getItem(key) === "1") return;
+    const t = window.setTimeout(() => setTourOpen(true), 600);
+    return () => window.clearTimeout(t);
+  }, [isDraft]);
+
   return (
     <div className="min-h-screen bg-white text-slate-900">
       <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-6">
+        <OnboardingTour
+          open={tourOpen}
+          steps={tourSteps}
+          onClose={() => {
+            setTourOpen(false);
+            try {
+              localStorage.setItem("codem-tutorial-draft-review-v1", "1");
+            } catch {
+              // ignore
+            }
+          }}
+        />
         <header className="mb-5 flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Activity Review</p>
@@ -301,7 +352,10 @@ export default function ActivityReviewPage() {
         </header>
 
         <main className="grid gap-4 md:grid-cols-[1.2fr_1fr]">
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <section
+            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+            data-tour="draft-settings"
+          >
             <h2 className="text-sm font-semibold text-slate-900">Settings</h2>
 
             <label className="mt-3 block text-xs font-medium text-slate-700">Title</label>
@@ -328,6 +382,7 @@ export default function ActivityReviewPage() {
               <button
                 onClick={() => void saveDraft()}
                 disabled={!isDraft || saving || publishing}
+                data-tour="draft-save"
                 className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
               >
                 {saving ? "Saving…" : "Save draft"}
@@ -335,6 +390,7 @@ export default function ActivityReviewPage() {
               <button
                 onClick={() => void publish()}
                 disabled={!isDraft || saving || publishing}
+                data-tour="draft-publish"
                 className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60"
               >
                 {publishing ? "Publishing…" : "Publish"}
@@ -383,6 +439,7 @@ export default function ActivityReviewPage() {
                           setEditingProblemId((cur) => (cur === p.id ? null : p.id));
                           setEditInstruction("");
                         }}
+                        data-tour="draft-ai-edit"
                         className="ml-3 rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
                       >
                         AI edit
