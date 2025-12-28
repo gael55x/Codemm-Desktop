@@ -20,6 +20,45 @@ const CODEX_MODEL = process.env.CODEX_MODEL ?? "gpt-4.1";
 const MAX_TOKENS = 5000;
 const TEMPERATURE = 0.3;
 
+function stripCppComments(source: string): string {
+  const withoutBlock = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  return withoutBlock.replace(/\/\/.*$/gm, "");
+}
+
+function extractCppSolveSignature(referenceSolution: string): string | null {
+  const src = String(referenceSolution ?? "");
+  if (!src.trim()) return null;
+
+  // Best-effort: match a solve(...) function definition (brace may be on same line).
+  const reSameLine =
+    /(^|\n)\s*([A-Za-z_][\w:<>\s*&]+?)\s+solve\s*\(([\s\S]*?)\)\s*(?:const\s*)?\{/m;
+  const m1 = reSameLine.exec(src);
+  const m = m1;
+  if (!m) return null;
+
+  const returnType = m[2]?.replace(/\s+/g, " ").trim();
+  const params = m[3]?.replace(/\s+/g, " ").trim();
+  if (!returnType || params == null) return null;
+  return `${returnType} solve(${params})`;
+}
+
+function synthesizeCppStarterCodeFromReference(args: { referenceSolution: string; fallbackTopic: string }): string | null {
+  const signature = extractCppSolveSignature(args.referenceSolution);
+  if (!signature) return null;
+
+  return `#include <bits/stdc++.h>
+
+${signature} {
+  // BEGIN STUDENT TODO
+  // TODO: Implement the missing core logic (${args.fallbackTopic}).
+  // Hint: Use the problem description as your spec.
+  // Hint: Let the tests drive edge cases.
+  // END STUDENT TODO
+  throw std::runtime_error("TODO");
+}
+`;
+}
+
 export type RepairContext = {
   previousDraft?: GeneratedProblemDraft;
   previousRaw?: string;
@@ -536,6 +575,19 @@ export async function generateSingleProblem(
           : "";
       if (!referenceSolution.trim()) {
         throw new Error(`Missing reference_solution for slot ${slot.index}.`);
+      }
+
+      // Starter code must include a real solve(...) definition (comments don't count).
+      // If the model only returned includes + a comment, deterministically synthesize a minimal
+      // starter implementation based on the reference_solution signature (without leaking the solution body).
+      if (!/\bsolve\s*\(/.test(stripCppComments(starterCode))) {
+        const synthesized = synthesizeCppStarterCodeFromReference({
+          referenceSolution,
+          fallbackTopic: slot.topics[0] ?? "cpp",
+        });
+        if (synthesized) {
+          starterCode = synthesized.trim();
+        }
       }
 
       const constraints =

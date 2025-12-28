@@ -75,7 +75,7 @@ export function defaultNextQuestionFromGaps(gaps: SpecGaps): string {
     case "topic_tags":
       return "What topics should we cover? Share a few tags.";
     case "problem_style":
-      return "How should solutions be checked? (stdout, return, or mixed)";
+      return "How should solutions be checked? (return value / console output / both)";
     default:
       return "What would you like this activity to focus on?";
   }
