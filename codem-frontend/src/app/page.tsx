@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSpecBuilderUX } from "@/lib/specBuilderUx";
+import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
 import type {
   Difficulty,
   GenerationLanguage,
@@ -76,6 +77,42 @@ export default function Home() {
   const [progress, setProgress] = useState<GenerationProgressState | null>(null);
   const [progressHint, setProgressHint] = useState<string | null>(null);
   const progressRef = useRef<EventSource | null>(null);
+
+  const [tourOpen, setTourOpen] = useState(false);
+  const tutorialSteps: TourStep[] = [
+    {
+      id: "mode",
+      selector: '[data-tour="mode-toggle"]',
+      title: "Pick a learning mode",
+      body: "Practice generates problems fast. Guided adds more structure and scaffolding.",
+    },
+    {
+      id: "prompt",
+      selector: '[data-tour="chat-input"]',
+      title: "Tell it what you want to learn",
+      body: 'Example: "SQL grouping and aggregation, 4 problems: 2 easy 2 medium."',
+    },
+    {
+      id: "send",
+      selector: '[data-tour="send"]',
+      title: "Chat to build the activity spec",
+      body: "Answer the follow-up questions until it says the spec is ready.",
+    },
+    {
+      id: "generate",
+      selector: '[data-tour="generate"]',
+      title: "Generate your problems",
+      body: 'Once the spec is ready, click "Generate" to create the draft activity.',
+    },
+  ];
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = "codem-tutorial-v1";
+    if (localStorage.getItem(key) === "1") return;
+    const t = window.setTimeout(() => setTourOpen(true), 500);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const handleLogoClick = () => {
     if (typeof window === "undefined") return;
@@ -708,6 +745,18 @@ export default function Home() {
       </div>
 
       <div className="relative mx-auto flex min-h-screen max-w-6xl flex-col px-6 pb-16">
+        <OnboardingTour
+          open={tourOpen}
+          steps={tutorialSteps}
+          onClose={() => {
+            setTourOpen(false);
+            try {
+              localStorage.setItem("codem-tutorial-v1", "1");
+            } catch {
+              // ignore
+            }
+          }}
+        />
         <header
           className={`sticky top-0 z-30 flex flex-col gap-4 py-6 lg:flex-row lg:items-center lg:justify-between transition-all duration-300 ${
             isPromptExpanded ? "translate-y-0 opacity-100" : "opacity-100 translate-y-0"
@@ -731,6 +780,7 @@ export default function Home() {
               className={`flex items-center rounded-full border p-1 text-xs font-semibold ${
                 darkMode ? "border-slate-800 bg-slate-900/60" : "border-slate-200 bg-white/80"
               }`}
+              data-tour="mode-toggle"
               role="tablist"
               aria-label="Learning mode"
             >
@@ -1142,6 +1192,7 @@ export default function Home() {
                       ? "border-slate-800 bg-slate-900 text-slate-100 placeholder-slate-500 focus:border-sky-400 focus:ring-sky-400"
                       : "border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:ring-sky-500"
                   }`}
+                  data-tour="chat-input"
                   placeholder="Start solving..."
                   rows={3}
                   value={chatInput}
@@ -1167,6 +1218,7 @@ export default function Home() {
                     <button
                       onClick={handleGenerate}
                       disabled={!specReady || isBusy}
+                      data-tour="generate"
                       className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${
                         darkMode
                           ? "bg-sky-600 hover:bg-sky-500 disabled:bg-slate-800"
@@ -1178,6 +1230,7 @@ export default function Home() {
                     <button
                       onClick={handleChatSend}
                       disabled={chatLoading || !chatInput.trim() || specReady}
+                      data-tour="send"
                       className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${
                         darkMode
                           ? "bg-sky-600 hover:bg-sky-500 disabled:bg-slate-800"
