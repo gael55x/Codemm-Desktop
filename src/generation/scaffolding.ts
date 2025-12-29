@@ -9,11 +9,77 @@ function normalizeScaffoldLevel(raw: unknown): number | null {
   return Math.max(0, Math.min(1, v));
 }
 
+function normalizeHintKey(text: string): string {
+  return text.trim().toLowerCase();
+}
+
+function uniqueLines(lines: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const l of lines) {
+    const key = normalizeHintKey(l);
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(l);
+  }
+  return out;
+}
+
+function buildConceptHintLines(args: {
+  lineComment: string;
+  scaffoldLevel: number;
+  learningGoal?: string | undefined;
+  topics?: string[] | undefined;
+}): string[] {
+  const lc = args.lineComment;
+  const goal = (args.learningGoal ?? "").trim().toLowerCase();
+  const topics = Array.isArray(args.topics) ? args.topics.map((t) => String(t ?? "").trim().toLowerCase()) : [];
+  const haystack = [goal, ...topics].join(" ").trim();
+  if (!haystack) return [];
+
+  const maxHints = args.scaffoldLevel >= 0.75 ? 4 : args.scaffoldLevel >= 0.45 ? 2 : 0;
+  if (maxHints <= 0) return [];
+
+  const hints: string[] = [];
+
+  const isMst =
+    haystack.includes("kruskal") ||
+    haystack.includes("minimum spanning tree") ||
+    /\bmst\b/.test(haystack) ||
+    haystack.includes("union find") ||
+    haystack.includes("dsu");
+  if (isMst) {
+    hints.push(`${lc} Hint: Sort edges by weight (ascending).`);
+    hints.push(`${lc} Hint: Use Union-Find (DSU) to track connected components.`);
+    hints.push(`${lc} Hint: Only add an edge if it connects two different components (avoid cycles).`);
+    hints.push(`${lc} Hint: Stop once you’ve added n-1 edges.`);
+  }
+
+  const isConnectedComponents =
+    haystack.includes("connected component") ||
+    haystack.includes("connected components") ||
+    (haystack.includes("graph") && haystack.includes("components"));
+  if (isConnectedComponents) {
+    hints.push(`${lc} Hint: Build an adjacency list, then run BFS/DFS from each unvisited node.`);
+  }
+
+  const isIntervalScheduling =
+    haystack.includes("interval") &&
+    (haystack.includes("non-overlapping") || haystack.includes("non overlapping") || haystack.includes("overlap"));
+  if (isIntervalScheduling) {
+    hints.push(`${lc} Hint: Sort intervals by end time, then greedily pick the earliest finishing ones.`);
+  }
+
+  return hints.slice(0, maxHints);
+}
+
 function buildTodoLines(args: {
   lineComment: string;
   scaffoldLevel: number;
   learningGoal?: string | undefined;
   hintsEnabled?: boolean | undefined;
+  topics?: string[] | undefined;
 }): string[] {
   const lc = args.lineComment;
   const goal = (args.learningGoal ?? "").trim();
@@ -25,12 +91,28 @@ function buildTodoLines(args: {
   if (args.scaffoldLevel >= 0.75) {
     lines.push(`${lc} TODO: Implement the missing core logic${goalSuffix}.`);
     if (hintsEnabled) {
+      lines.push(
+        ...buildConceptHintLines({
+          lineComment: lc,
+          scaffoldLevel: args.scaffoldLevel,
+          learningGoal: args.learningGoal,
+          topics: args.topics,
+        })
+      );
       lines.push(`${lc} Hint: Use the problem description as your spec.`);
       lines.push(`${lc} Hint: Let the existing tests drive edge cases.`);
     }
   } else if (args.scaffoldLevel >= 0.45) {
     lines.push(`${lc} TODO: Implement the missing logic${goalSuffix}.`);
     if (hintsEnabled) {
+      lines.push(
+        ...buildConceptHintLines({
+          lineComment: lc,
+          scaffoldLevel: args.scaffoldLevel,
+          learningGoal: args.learningGoal,
+          topics: args.topics,
+        })
+      );
       lines.push(`${lc} Hint: Follow the problem description and tests.`);
     }
   } else if (args.scaffoldLevel >= 0.2) {
@@ -39,7 +121,7 @@ function buildTodoLines(args: {
     lines.push(`${lc} TODO: Implement this.`);
   }
   lines.push(`${lc} END STUDENT TODO`);
-  return lines;
+  return uniqueLines(lines);
 }
 
 type JavaMethodBody = {
@@ -266,6 +348,7 @@ function replaceJavaMethodBodies(args: {
   scaffoldLevel: number;
   learningGoal?: string | undefined;
   hintsEnabled?: boolean | undefined;
+  topics?: string[] | undefined;
 }): { code: string; replaced: JavaMethodBody[] } {
   let out = args.source;
   const sorted = [...args.methodsToScaffold].sort((a, b) => b.openBrace - a.openBrace);
@@ -284,6 +367,7 @@ function replaceJavaMethodBodies(args: {
       scaffoldLevel: args.scaffoldLevel,
       learningGoal: args.learningGoal,
       hintsEnabled: args.hintsEnabled,
+      topics: args.topics,
     });
 
     const body =
@@ -304,6 +388,7 @@ function scaffoldJavaFromReference(args: {
   lineComment: string;
   learningGoal?: string | undefined;
   hintsEnabled?: boolean | undefined;
+  topics?: string[] | undefined;
 }): { code: string; replaced: JavaMethodBody[] } {
   const marker = `${args.lineComment} BEGIN STUDENT TODO`;
   if (args.reference.includes(marker)) return { code: args.reference, replaced: [] };
@@ -323,6 +408,7 @@ function scaffoldJavaFromReference(args: {
     scaffoldLevel: args.scaffoldLevel,
     learningGoal: args.learningGoal,
     hintsEnabled: args.hintsEnabled,
+    topics: args.topics,
   });
 }
 
@@ -371,6 +457,7 @@ function scaffoldPythonFromReference(args: {
   lineComment: string;
   learningGoal?: string | undefined;
   hintsEnabled?: boolean | undefined;
+  topics?: string[] | undefined;
 }): { code: string; replacedCount: number } {
   const marker = `${args.lineComment} BEGIN STUDENT TODO`;
   if (args.reference.includes(marker)) return { code: args.reference, replacedCount: 0 };
@@ -414,6 +501,7 @@ function scaffoldPythonFromReference(args: {
       scaffoldLevel: args.scaffoldLevel,
       learningGoal: args.learningGoal,
       hintsEnabled: args.hintsEnabled,
+      topics: args.topics,
     });
     const replacement = [header, ...todo.map((l) => `${bodyIndent}${l}`), `${bodyIndent}raise NotImplementedError("TODO")`];
     lines.splice(b.startLine, b.endLine - b.startLine, ...replacement);
@@ -428,6 +516,7 @@ function scaffoldCppFromReference(args: {
   lineComment: string;
   learningGoal?: string | undefined;
   hintsEnabled?: boolean | undefined;
+  topics?: string[] | undefined;
 }): { code: string; replacedCount: number } {
   const marker = `${args.lineComment} BEGIN STUDENT TODO`;
   if (args.reference.includes(marker)) return { code: args.reference, replacedCount: 0 };
@@ -488,6 +577,7 @@ function scaffoldCppFromReference(args: {
     scaffoldLevel: args.scaffoldLevel,
     learningGoal: args.learningGoal,
     hintsEnabled: args.hintsEnabled,
+    topics: args.topics,
   });
 
   const body =
@@ -501,19 +591,23 @@ function scaffoldCppFromReference(args: {
 }
 
 function scaffoldSqlFromReference(args: {
-  reference: string;
+  starter: string;
   scaffoldLevel: number;
   lineComment: string;
   learningGoal?: string | undefined;
   hintsEnabled?: boolean | undefined;
+  topics?: string[] | undefined;
 }): { code: string } {
   const todo = buildTodoLines({
     lineComment: args.lineComment,
     scaffoldLevel: args.scaffoldLevel,
     learningGoal: args.learningGoal,
     hintsEnabled: args.hintsEnabled,
+    topics: args.topics,
   });
-  const query = args.scaffoldLevel >= 0.75 ? "SELECT 1;" : "SELECT 1;";
+  const starter = (args.starter ?? "").trim();
+  if (starter.includes(`${args.lineComment} BEGIN STUDENT TODO`)) return { code: starter };
+  const query = starter || "SELECT 1;";
   return { code: `${todo.join("\n")}\n${query}\n` };
 }
 
@@ -526,6 +620,7 @@ export function applyGuidedScaffolding(draft: GeneratedProblemDraft, slot: Probl
   const lineComment = profile.scaffolding?.lineComment ?? (draft.language === "python" ? "#" : "//");
   const learningGoal = slot.pedagogy?.learning_goal;
   const hintsEnabled = slot.pedagogy?.hints_enabled;
+  const topics = Array.isArray(slot.topics) ? slot.topics : [];
 
   if (draft.language === "java") {
     if ("reference_solution" in draft) {
@@ -535,6 +630,7 @@ export function applyGuidedScaffolding(draft: GeneratedProblemDraft, slot: Probl
         lineComment,
         learningGoal,
         hintsEnabled,
+        topics,
       });
       trace("generation.guided.scaffolded", {
         slotIndex: slot.index,
@@ -565,6 +661,7 @@ export function applyGuidedScaffolding(draft: GeneratedProblemDraft, slot: Probl
         lineComment,
         learningGoal,
         hintsEnabled,
+        topics,
       });
       for (const m of scaffolded.replaced) {
         scaffolded_regions.push({
@@ -601,6 +698,7 @@ export function applyGuidedScaffolding(draft: GeneratedProblemDraft, slot: Probl
         lineComment,
         learningGoal,
         hintsEnabled,
+        topics,
       });
       trace("generation.guided.scaffolded", {
         slotIndex: slot.index,
@@ -619,6 +717,7 @@ export function applyGuidedScaffolding(draft: GeneratedProblemDraft, slot: Probl
         lineComment,
         learningGoal,
         hintsEnabled,
+        topics,
       });
       trace("generation.guided.scaffolded", {
         slotIndex: slot.index,
@@ -632,11 +731,12 @@ export function applyGuidedScaffolding(draft: GeneratedProblemDraft, slot: Probl
 
     if (draft.language === "sql") {
       const scaffolded = scaffoldSqlFromReference({
-        reference: draft.reference_solution,
+        starter: draft.starter_code,
         scaffoldLevel: level,
         lineComment,
         learningGoal,
         hintsEnabled,
+        topics,
       });
       trace("generation.guided.scaffolded", {
         slotIndex: slot.index,

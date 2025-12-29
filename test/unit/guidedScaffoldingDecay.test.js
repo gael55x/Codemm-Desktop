@@ -86,5 +86,7 @@ public class GraphAlgo {
   assert.deepEqual(markerCounts, [1, 2, 4, 5]);
 
   assert.ok((problems[0].starter_code.match(/Hint:/g) ?? []).length > 0);
+  assert.match(problems[0].starter_code, /Union-Find|DSU/i);
   assert.equal((problems[3].starter_code.match(/Hint:/g) ?? []).length, 0);
+  assert.doesNotMatch(problems[3].starter_code, /Union-Find|DSU|Sort edges/i);
 });
