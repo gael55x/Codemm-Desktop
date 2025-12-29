@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Moon, Sun } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
 
@@ -261,14 +262,12 @@ export default function CommunityPage() {
               <button
                 type="button"
                 onClick={toggleDarkMode}
-                className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
-                  darkMode
-                    ? "border-slate-800 bg-slate-900/60 text-slate-200 hover:bg-slate-800"
-                    : "border-slate-200 bg-white/80 text-slate-700 hover:bg-slate-100"
+                className={`flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-base transition ${
+                  darkMode ? "text-slate-200 hover:text-white" : "text-slate-600 hover:text-slate-900"
                 }`}
-                aria-label="Toggle theme"
+                aria-label="Toggle dark mode"
               >
-                {darkMode ? "Light" : "Dark"}
+                {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
               </button>
             </div>
           </div>
