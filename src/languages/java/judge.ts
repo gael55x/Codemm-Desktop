@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { JudgeResult } from "../../types";
 import { trace } from "../../utils/trace";
 import { execAsync, stripAnsi } from "../../judge/exec";
+import { mkCodemTmpDir } from "../../judge/tmp";
 
 function parseJUnitTree(stdout: string): { passed: string[]; failed: string[] } {
   const clean = stripAnsi(stdout);
@@ -37,7 +37,7 @@ export type JavaFiles = Record<string, string>;
 
 export async function runJavaJudge(userCode: string, testSuite: string): Promise<JudgeResult> {
   const start = Date.now();
-  const tmp = mkdtempSync(join(tmpdir(), "codem-judge-"));
+  const tmp = mkCodemTmpDir("codem-judge-");
 
   try {
     const userClassName = inferClassName(userCode, "Solution");
@@ -80,7 +80,7 @@ export async function runJavaJudge(userCode: string, testSuite: string): Promise
 
 export async function runJavaJudgeFiles(userFiles: JavaFiles, testSuite: string): Promise<JudgeResult> {
   const start = Date.now();
-  const tmp = mkdtempSync(join(tmpdir(), "codem-judge-"));
+  const tmp = mkCodemTmpDir("codem-judge-");
 
   try {
     for (const [filename, source] of Object.entries(userFiles)) {
@@ -134,4 +134,3 @@ export async function runJavaJudgeFiles(userFiles: JavaFiles, testSuite: string)
     rmSync(tmp, { recursive: true, force: true });
   }
 }
-

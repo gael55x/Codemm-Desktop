@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { JudgeResult } from "../../types";
 import { trace } from "../../utils/trace";
 import { execAsync, stripAnsi } from "../../judge/exec";
+import { mkCodemTmpDir } from "../../judge/tmp";
 
 function parsePytestFailures(output: string): { failed: string[]; errored: string[] } {
   const failed = new Set<string>();
@@ -36,7 +36,7 @@ export async function runPythonJudge(userCode: string, testSuite: string): Promi
 
 export async function runPythonJudgeFiles(userFiles: PythonFiles, testSuite: string): Promise<JudgeResult> {
   const start = Date.now();
-  const tmp = mkdtempSync(join(tmpdir(), "codem-py-judge-"));
+  const tmp = mkCodemTmpDir("codem-py-judge-");
 
   try {
     for (const [filename, source] of Object.entries(userFiles)) {
@@ -118,4 +118,3 @@ export async function runPythonJudgeFiles(userFiles: PythonFiles, testSuite: str
     rmSync(tmp, { recursive: true, force: true });
   }
 }
-

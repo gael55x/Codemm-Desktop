@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { JudgeResult } from "../../types";
 import { trace } from "../../utils/trace";
 import { execAsync, stripAnsi } from "../../judge/exec";
+import { mkCodemTmpDir } from "../../judge/tmp";
 
 function parseSqlRunner(stdout: string): { passed: string[]; failed: string[] } {
   const clean = stripAnsi(stdout);
@@ -23,7 +23,7 @@ function parseSqlRunner(stdout: string): { passed: string[]; failed: string[] } 
 
 export async function runSqlJudge(userSql: string, testSuiteJson: string): Promise<JudgeResult> {
   const start = Date.now();
-  const tmp = mkdtempSync(join(tmpdir(), "codem-sql-judge-"));
+  const tmp = mkCodemTmpDir("codem-sql-judge-");
 
   try {
     writeFileSync(join(tmp, "solution.sql"), userSql, "utf8");
@@ -68,4 +68,3 @@ export async function runSqlJudge(userSql: string, testSuiteJson: string): Promi
     rmSync(tmp, { recursive: true, force: true });
   }
 }
-

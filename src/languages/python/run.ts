@@ -1,7 +1,7 @@
 import { exec } from "child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { rmSync, writeFileSync } from "fs";
 import { join } from "path";
+import { mkCodemTmpDir } from "../../judge/tmp";
 
 function getRunTimeoutMs(): number {
   const raw = process.env.CODEMM_RUN_TIMEOUT_MS;
@@ -38,7 +38,7 @@ export type RunResult = {
 export type PythonFiles = Record<string, string>;
 
 export async function runPythonFiles(opts: { files: PythonFiles; stdin?: string }): Promise<RunResult> {
-  const tmp = mkdtempSync(join(tmpdir(), "codem-py-run-"));
+  const tmp = mkCodemTmpDir("codem-py-run-");
 
   try {
     for (const [filename, source] of Object.entries(opts.files)) {
@@ -96,4 +96,3 @@ export async function runPythonCodeOnly(userCode: string, stdin?: string): Promi
   const files: PythonFiles = { "main.py": userCode };
   return runPythonFiles({ files, ...(typeof stdin === "string" ? { stdin } : {}) });
 }
-
