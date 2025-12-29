@@ -126,7 +126,7 @@ export async function generateProblemsFromPlan(
   }
 
   for (const slot of plan.slice(initialCount)) {
-    const maxAttempts = slot.language === "cpp" ? 5 : defaultMaxAttempts;
+    const maxAttempts = defaultMaxAttempts;
     const domainSeed = pickDomain(`${slot.language}:${slot.difficulty}:${slot.topics.join(",")}:${slot.index}`);
     const promptContext: SlotPromptContext = {
       domain: domainSeed,

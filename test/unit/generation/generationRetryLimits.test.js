@@ -75,7 +75,7 @@ def test_case_8(): assert solve() == 0
   };
 }
 
-test("generation: retries C++ up to 5 attempts", async () => {
+test("generation: retries C++ up to 3 attempts", async () => {
   const plan = [
     {
       index: 0,
@@ -103,8 +103,8 @@ test("generation: retries C++ up to 5 attempts", async () => {
     generateProblemsFromPlan(plan, { deps: { generateSingleProblem, validateReferenceSolution } })
   );
 
-  assert.equal(generateCalls, 5);
-  assert.equal(validateCalls, 5);
+  assert.equal(generateCalls, 3);
+  assert.equal(validateCalls, 3);
 });
 
 test("generation: retries non-C++ up to 3 attempts", async () => {
