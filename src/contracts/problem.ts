@@ -91,7 +91,7 @@ const PythonTestSuiteSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "Invalid test_suite: must use pytest, import solve from solution, define exactly 8 tests named test_case_1..test_case_8, avoid IO/randomness, and assert solve(...) == expected.",
+          "Invalid test_suite: must use pytest, import solve from solution, define exactly 8 tests named test_case_1..test_case_8, avoid IO/randomness, and use a supported assertion style (return/stdout/mixed).",
       });
     }
   });

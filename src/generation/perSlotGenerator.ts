@@ -6,7 +6,8 @@ import {
   hasBrittleWhitespaceStringExpectations,
   isValidJUnit5TestSuite,
 } from "../languages/java/rules";
-import { diagnoseCppTestSuite } from "../languages/cpp/rules";
+import { diagnoseCppTestSuite, hasCppStdoutWrites, looksLikeCppTestSuiteCapturesStdout } from "../languages/cpp/rules";
+import { hasPythonStdoutWrites, isValidPytestTestSuiteForStyle } from "../languages/python/rules";
 import { GeneratedProblemDraftSchema, type GeneratedProblemDraft } from "../contracts/problem";
 import type { ProblemSlot } from "../planner/types";
 import { buildSlotPromptWithContext, getSystemPromptForSlot } from "./prompts";
@@ -19,6 +20,15 @@ import { coerceSqlTestSuiteToJsonString } from "../languages/sql/rules";
 const CODEX_MODEL = process.env.CODEX_MODEL ?? "gpt-4.1";
 const MAX_TOKENS = 5000;
 const TEMPERATURE = 0.3;
+
+type ProblemStyle = "stdout" | "return" | "mixed";
+function normalizeProblemStyle(raw: string): ProblemStyle {
+  const s = String(raw ?? "").trim().toLowerCase();
+  if (s === "stdout" || s === "return" || s === "mixed") return s;
+  if (s.includes("stdout")) return "stdout";
+  if (s.includes("mixed")) return "mixed";
+  return "return";
+}
 
 function stripCppComments(source: string): string {
   const withoutBlock = source.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -88,6 +98,7 @@ async function repairCppTestSuite(args: {
   previousTestSuite: string;
   errorMessage: string;
 }): Promise<string> {
+  const style = normalizeProblemStyle(args.slot.problem_style);
   const system = `
 You are Codemm's C++ test suite repairer.
 
@@ -123,6 +134,10 @@ Hard rules:
 
 Additional rules:
 - Each TODO block must contain deterministic assertions (use std::runtime_error on failure).
+- Problem style for this activity is "${style}":
+  - return: tests should call solve(...) and compare returned values.
+  - stdout: tests should call solve(...), capture std::cout output (redirect rdbuf), and compare printed output.
+  - mixed: tests should compare BOTH the returned value and captured std::cout output.
 `.trim();
 
   const user = `
@@ -166,6 +181,84 @@ Return JSON: {"test_suite":"..."} only.
   const parsed = tryParseJson(text) as any;
   const repaired = typeof parsed?.test_suite === "string" ? parsed.test_suite.trim() : "";
   if (!repaired) throw new Error("C++ test_suite repair failed: missing test_suite.");
+  return repaired;
+}
+
+async function repairPythonTestSuite(args: {
+  slot: ProblemSlot;
+  title: string;
+  description: string;
+  constraints: string;
+  starterCode: string;
+  referenceSolution: string;
+  previousTestSuite: string;
+  errorMessage: string;
+}): Promise<string> {
+  const style = normalizeProblemStyle(args.slot.problem_style);
+  const system = `
+You are Codemm's Python pytest test suite repairer.
+
+Your job:
+- Produce a VALID pytest test suite for the given problem.
+- The suite MUST be deterministic and MUST pass against the provided reference_solution.
+
+Hard rules:
+- Return ONLY valid JSON (no markdown, no code fences, no prose)
+- Output schema: { "test_suite": "..." }
+- Python 3.11, pytest
+- test_suite MUST start with:
+  import pytest
+  from solution import solve
+- Exactly 8 tests named: test_case_1 ... test_case_8
+- Tests MUST NOT use input(), print(), open(), randomness, or pytest.approx
+
+Problem style for this activity is "${style}":
+- return: each test must assert solve(...) == expected
+- stdout: each test must call solve(...), then use capsys.readouterr() and assert on captured.out
+- mixed: each test must assert solve(...) == expected AND assert captured.out (after calling solve)
+`.trim();
+
+  const user = `
+Slot:
+${JSON.stringify({ difficulty: args.slot.difficulty, topics: args.slot.topics, style: args.slot.problem_style })}
+
+Title:
+${args.title}
+
+Description:
+${args.description}
+
+Constraints:
+${args.constraints}
+
+Starter code (learner edits):
+${args.starterCode}
+
+Reference solution (must pass all tests):
+${args.referenceSolution}
+
+Previous invalid test_suite:
+${args.previousTestSuite}
+
+Error:
+${args.errorMessage}
+
+Return JSON: {"test_suite":"..."} only.
+`.trim();
+
+  const completion = await createCodexCompletion({
+    system,
+    user,
+    model: CODEX_MODEL,
+    temperature: 0,
+    maxTokens: 2000,
+  });
+
+  const text = completion.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
+  traceText("generation.python.testSuite.repair.raw", text, { extra: { slotIndex: args.slot.index } });
+  const parsed = tryParseJson(text) as any;
+  const repaired = typeof parsed?.test_suite === "string" ? parsed.test_suite.trim() : "";
+  if (!repaired) throw new Error("Python test_suite repair failed: missing test_suite.");
   return repaired;
 }
 
@@ -246,7 +339,9 @@ ${previousJson || "(not provided)"}
 Goal:
 - Return corrected JSON with the exact same fields.
 - Prefer keeping id/title/description/starter_code stable.
-- You MAY update test_suite and/or the reference solution artifact, but the final pair MUST compile and MUST pass in Docker/JUnit.
+- Prefer fixing the reference solution artifact to satisfy the existing tests.
+- Only change test_suite if it is clearly inconsistent with the description or contains an obvious mistake; otherwise keep tests stable.
+- The final test_suite + reference artifact MUST compile and MUST pass in Docker/JUnit.
 - Keep tests meaningful (no trivial assertions).
 
 Return ONLY valid JSON. No markdown. No code fences. No prose.`;
@@ -286,7 +381,10 @@ ${errorMessage || "(not provided)"}
 
 Hard structure rules (do not violate):
 - starter_code and reference_solution must define solve(...)
-- solve(...) must NOT use input(), print(), open(), networking, or randomness
+- solve(...) must NOT read from stdin (no input(), no sys.stdin.*) and must not use networking or randomness
+- For problem_style=return: solve(...) must NOT print; tests must assert solve(...) == expected
+- For problem_style=stdout: solve(...) should print the answer; tests must capture stdout via capsys and assert on captured.out
+- For problem_style=mixed: solve(...) should return the answer AND print it; tests must assert both return and captured.out
 - test_suite must import solve via: from solution import solve
 - No print-based tests, no randomness, no pytest.approx
 - Keep exactly 8 tests: test_case_1..test_case_8
@@ -343,7 +441,11 @@ Hard structure rules (do not violate):
 - Keep exactly 8 tests: test_case_1..test_case_8 using RUN_TEST("test_case_N", { ... })
 - IMPORTANT: RUN_TEST must be a VARIADIC macro: #define RUN_TEST(name, ...) ... __VA_ARGS__ ...
   (otherwise commas inside test blocks break compilation)
-- Tests must be deterministic and assert solve(...) == expected
+- Tests must be deterministic.
+- solve(...) must NOT read from stdin (no cin/scanf/getline/etc).
+- For problem_style=return: tests should compare returned values (no output capture).
+- For problem_style=stdout: tests should capture std::cout output (redirect rdbuf) and compare printed output.
+- For problem_style=mixed: tests should compare BOTH the returned value and captured std::cout output.
 - Tests must print one line per test: [PASS] test_case_N or [FAIL] test_case_N
 
 Here is your previous output (may be truncated):
@@ -532,16 +634,74 @@ export async function generateSingleProblem(
         topic_tag: topicTag,
       };
 
-      const result = GeneratedProblemDraftSchema.safeParse(draft);
+      let result = GeneratedProblemDraftSchema.safeParse(draft);
       if (!result.success) {
-        const firstError = result.error.issues[0];
+        const testSuiteIssue = result.error.issues.some((i) => i.path?.[0] === "test_suite");
+        const otherIssues = result.error.issues.some((i) => i.path?.[0] !== "test_suite");
+
+        // Deterministic self-heal pass: if only test_suite is invalid, ask the LLM to repair it.
+        if (testSuiteIssue && !otherIssues) {
+          const msg =
+            result.error.issues
+              .slice(0, 6)
+              .map((i) => `${i.path?.length ? i.path.join(".") : "root"}: ${i.message}`)
+              .join(" | ") || "unknown error";
+
+          const repairedTestSuite = await repairPythonTestSuite({
+            slot,
+            title,
+            description,
+            constraints,
+            starterCode,
+            referenceSolution,
+            previousTestSuite: testSuite,
+            errorMessage: msg,
+          });
+          const repairedDraft: GeneratedProblemDraft = { ...draft, test_suite: repairedTestSuite };
+          result = GeneratedProblemDraftSchema.safeParse(repairedDraft);
+          if (result.success) {
+            trace("generation.python.testSuite.repaired", { slotIndex: slot.index, title });
+          } else {
+            const firstError = result.error.issues[0];
+            throw new Error(
+              `Generated problem for slot ${slot.index} failed schema validation after Python test_suite repair: ${firstError?.message ?? "unknown error"}`
+            );
+          }
+        } else {
+          const firstError = result.error.issues[0];
+          throw new Error(
+            `Generated problem for slot ${slot.index} failed schema validation: ${firstError?.message ?? "unknown error"}`
+          );
+        }
+      }
+
+      const style = normalizeProblemStyle(slot.problem_style);
+      const parsed = result.data;
+      if (!("reference_solution" in parsed)) {
+        throw new Error("Internal error: expected Python draft to include reference_solution.");
+      }
+
+      if (!isValidPytestTestSuiteForStyle(parsed.test_suite, style, 8)) {
         throw new Error(
-          `Generated problem for slot ${slot.index} failed schema validation: ${firstError?.message ?? "unknown error"}`
+          `Invalid test_suite for slot ${slot.index}: does not match problem_style=${style} requirements.`
         );
+      }
+      if (style === "return") {
+        if (hasPythonStdoutWrites(parsed.reference_solution)) {
+          throw new Error(
+            `Invalid reference_solution for slot ${slot.index}: problem_style=return must not write to stdout (no print/sys.stdout).`
+          );
+        }
+      } else {
+        if (!hasPythonStdoutWrites(parsed.reference_solution)) {
+          throw new Error(
+            `Invalid reference_solution for slot ${slot.index}: problem_style=${style} must write the final answer to stdout (print/sys.stdout).`
+          );
+        }
       }
 
       trace("generation.draft.meta", { slotIndex: slot.index, title, language: "python", difficulty, topicTag });
-      return { draft: result.data, meta: { llmOutputHash } };
+      return { draft: parsed, meta: { llmOutputHash } };
     }
 
     if (slot.language === "cpp") {
@@ -666,29 +826,58 @@ export async function generateSingleProblem(
           result = GeneratedProblemDraftSchema.safeParse(repairedDraft);
           if (result.success) {
             trace("generation.cpp.testSuite.repaired", { slotIndex: slot.index, title });
-            return { draft: result.data, meta: { llmOutputHash } };
+          } else {
+            const repairedDiagnostics = diagnoseCppTestSuite(repairedTestSuite);
+            const maybeIncludeSnippet = process.env.CODEMM_TRACE_TEST_SUITES === "1";
+            trace("generation.cpp.testSuite.repair_invalid", {
+              slotIndex: slot.index,
+              checks: repairedDiagnostics,
+              ...(maybeIncludeSnippet ? { testSuiteSnippet: repairedTestSuite.slice(0, 2000) } : {}),
+            });
+
+            throw new Error(
+              `Generated problem for slot ${slot.index} failed schema validation after C++ test_suite repair: ${msgWithDiagnostics} | repaired_cpp_test_suite_checks=${JSON.stringify(repairedDiagnostics)}`
+            );
           }
-
-          const repairedDiagnostics = diagnoseCppTestSuite(repairedTestSuite);
-          const maybeIncludeSnippet = process.env.CODEMM_TRACE_TEST_SUITES === "1";
-          trace("generation.cpp.testSuite.repair_invalid", {
-            slotIndex: slot.index,
-            checks: repairedDiagnostics,
-            ...(maybeIncludeSnippet ? { testSuiteSnippet: repairedTestSuite.slice(0, 2000) } : {}),
-          });
-
-          throw new Error(
-            `Generated problem for slot ${slot.index} failed schema validation after C++ test_suite repair: ${msgWithDiagnostics} | repaired_cpp_test_suite_checks=${JSON.stringify(repairedDiagnostics)}`
-          );
         }
 
-        throw new Error(
-          `Generated problem for slot ${slot.index} failed schema validation: ${msgWithDiagnostics}`
-        );
+        if (!result.success) {
+          throw new Error(
+            `Generated problem for slot ${slot.index} failed schema validation: ${msgWithDiagnostics}`
+          );
+        }
       }
 
       trace("generation.draft.meta", { slotIndex: slot.index, title, language: "cpp", difficulty, topicTag });
-      return { draft: result.data, meta: { llmOutputHash } };
+      const style = normalizeProblemStyle(slot.problem_style);
+      const parsed = result.data;
+      if (!("reference_solution" in parsed)) {
+        throw new Error("Internal error: expected C++ draft to include reference_solution.");
+      }
+      if (style === "return") {
+        if (hasCppStdoutWrites(parsed.reference_solution)) {
+          throw new Error(
+            `Invalid reference_solution for slot ${slot.index}: problem_style=return must not write to stdout/stderr (no cout/cerr/printf).`
+          );
+        }
+        if (looksLikeCppTestSuiteCapturesStdout(parsed.test_suite)) {
+          throw new Error(
+            `Invalid test_suite for slot ${slot.index}: problem_style=return should not capture stdout; compare returned values instead.`
+          );
+        }
+      } else {
+        if (!hasCppStdoutWrites(parsed.reference_solution)) {
+          throw new Error(
+            `Invalid reference_solution for slot ${slot.index}: problem_style=${style} must write the final answer to stdout (use std::cout).`
+          );
+        }
+        if (!looksLikeCppTestSuiteCapturesStdout(parsed.test_suite)) {
+          throw new Error(
+            `Invalid test_suite for slot ${slot.index}: problem_style=${style} must capture std::cout output and assert on it (redirect rdbuf).`
+          );
+        }
+      }
+      return { draft: parsed, meta: { llmOutputHash } };
     }
 
 	    if (slot.language === "sql") {

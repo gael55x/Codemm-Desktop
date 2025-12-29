@@ -5,6 +5,41 @@ function stripCppComments(source: string): string {
   return withoutBlock.replace(/\/\/.*$/gm, "");
 }
 
+export function hasCppStdinReads(source: string): boolean {
+  const s = stripCppComments(source ?? "");
+  return (
+    /\b(?:std::)?cin\s*>>/.test(s) ||
+    /\b(?:std::)?cin\s*\.\s*(?:get|getline|read|ignore|peek)\s*\(/.test(s) ||
+    /\bgetline\s*\(\s*(?:std::)?cin\b/.test(s) ||
+    /\bscanf\s*\(/.test(s) ||
+    /\bgetchar(?:_unlocked)?\s*\(/.test(s) ||
+    /\bfgets\s*\(/.test(s) ||
+    /\bfread\s*\(/.test(s) ||
+    /\bstd::istreambuf_iterator\s*<[^>]*>\s*\(\s*(?:std::)?cin\b/.test(s) ||
+    /\bistreambuf_iterator\s*<[^>]*>\s*\(\s*(?:std::)?cin\b/.test(s) ||
+    /\b(?:std::)?cin\s*\.\s*rdbuf\s*\(/.test(s)
+  );
+}
+
+export function hasCppStdoutWrites(source: string): boolean {
+  const s = stripCppComments(source ?? "");
+  return (
+    /\b(?:std::)?cout\s*<</.test(s) ||
+    /\b(?:std::)?cerr\s*<</.test(s) ||
+    /\b(?:std::)?clog\s*<</.test(s) ||
+    /\b(?:std::)?printf\s*\(/.test(s) ||
+    /\bfprintf\s*\(/.test(s) ||
+    /\bputs\s*\(/.test(s) ||
+    /\bputchar\s*\(/.test(s)
+  );
+}
+
+export function looksLikeCppTestSuiteCapturesStdout(testSuite: string): boolean {
+  const s = stripCppComments(testSuite ?? "");
+  // Heuristic: redirecting std::cout's streambuf into an ostringstream/stringstream.
+  return /\bstd::cout\s*\.\s*rdbuf\s*\(/.test(s) && /\bstd::o?stringstream\b/.test(s);
+}
+
 export const CppSourceSchema = z
   .string()
   .min(1)
@@ -25,32 +60,11 @@ export const CppSourceSchema = z
 
     // The C++ contract uses a return-based solve(...) function. Reading from stdin will block in Docker
     // and show up as a "timedOut" judge result. Disallow common stdin patterns to prevent hangs.
-    const readsFromStdin =
-      /\b(?:std::)?cin\s*>>/.test(s) ||
-      /\bscanf\s*\(/.test(s) ||
-      /\bgetchar\s*\(/.test(s) ||
-      /\bfgets\s*\(/.test(s) ||
-      /\bgetline\s*\(\s*(?:std::)?cin\b/.test(s);
-    if (readsFromStdin) {
+    if (hasCppStdinReads(s)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
           'C++ solve(...) must not read from stdin (use only the function arguments; stdin reads will hang in the Docker judge).',
-      });
-    }
-
-    // Output is also not supported for the current C++ contract (tests call solve(...) and compare return values).
-    const writesToStdout =
-      /\b(?:std::)?cout\s*<</.test(s) ||
-      /\b(?:std::)?cerr\s*<</.test(s) ||
-      /\bprintf\s*\(/.test(s) ||
-      /\bfprintf\s*\(/.test(s) ||
-      /\bputs\s*\(/.test(s);
-    if (writesToStdout) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'C++ solve(...) must not write to stdout/stderr (return a value; the harness handles all printing).',
       });
     }
   });

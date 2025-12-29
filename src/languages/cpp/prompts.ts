@@ -9,7 +9,7 @@ C++ invariants (non-negotiable):
 - No filesystem access
 - No networking
 - Deterministic behavior (no randomness unless explicitly required)
-- No I/O unless explicitly specified (prefer pure functions)
+- No stdin reads (do not use cin/scanf/getline/etc); prefer pure functions
 
 Problem quality rules (non-negotiable):
 - The description, tests, and reference_solution must describe and validate the SAME behavior.
@@ -19,8 +19,11 @@ Problem quality rules (non-negotiable):
 
 Solution interface:
 - Provide a single entry function named solve(...)
-- solve(...) MUST return a value deterministically
-- Do not read from stdin or print from solve()
+- solve(...) MUST be deterministic and must NOT read from stdin
+- The required output behavior depends on Problem style:
+  - return: solve(...) returns the answer (no printing)
+  - stdout: solve(...) prints the answer to std::cout (tests capture stdout)
+  - mixed: solve(...) returns the answer AND prints it to std::cout
 - Do not define main() in solution.cpp
 
 Test suite requirements (custom runner in test.cpp):
@@ -57,6 +60,16 @@ Output format:
 
 export function buildCppSlotPrompt(slot: ProblemSlot): string {
   const topicsText = slot.topics.join(", ");
+  const style =
+    slot.problem_style === "stdout" || slot.problem_style === "mixed" || slot.problem_style === "return"
+      ? slot.problem_style
+      : "return";
+  const styleRules =
+    style === "stdout"
+      ? `- reference_solution should write the final answer to std::cout (not stdin)\n- test_suite must capture std::cout (redirect rdbuf to std::ostringstream) and compare printed output`
+      : style === "mixed"
+        ? `- reference_solution should return the answer AND print it to std::cout\n- test_suite must compare BOTH the returned value and captured std::cout output`
+        : `- reference_solution must return the answer (no printing)\n- test_suite must compare returned values only (no stdout capture)`;
 
   return `Generate exactly 1 C++ problem with the following requirements:
 
@@ -92,9 +105,11 @@ Critical rules:
   } while (0)
   int main(){ ... return __codem_failures ? 1 : 0; }
 - test_suite must call RUN_TEST exactly 8 times: test_case_1..test_case_8
-- Each test must assert solve(...) == expected (no print-based tests)
+- solve(...) must NOT read from stdin (no cin/scanf/getline/etc)
+${styleRules}
 - Tests must print exactly one status line per test: [PASS] test_case_N or [FAIL] test_case_N
 - No randomness, no flaky behavior
+- Keep test inputs small enough to run comfortably under strict time limits (avoid massive graphs/arrays).
 
 Respond ONLY with JSON. NO markdown. NO code fences. NO extra text.`;
 }
