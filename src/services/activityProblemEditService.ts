@@ -1,12 +1,12 @@
 import type { GeneratedProblem, GeneratedProblemDraft } from "../contracts/problem";
 import { GeneratedProblemDraftSchema, GeneratedProblemSchema } from "../contracts/problem";
 import { getLanguageProfile } from "../languages/profiles";
-import { createCodexCompletion } from "../infra/llm/codex";
+import { createCodemmCompletion } from "../infra/llm";
 import { tryParseJson } from "../utils/jsonParser";
 import { validateReferenceSolution } from "../generation/referenceSolutionValidator";
 import { traceText } from "../utils/trace";
 
-const CODEX_MODEL = process.env.CODEX_MODEL ?? "gpt-4.1";
+const CODEX_MODEL = process.env.CODEX_MODEL;
 const MAX_TOKENS = 5000;
 const TEMPERATURE = 0.25;
 
@@ -222,7 +222,7 @@ export async function editDraftProblemWithAi(args: {
   existing: GeneratedProblem;
   instruction: string;
   deps?: {
-    createCompletion?: typeof createCodexCompletion;
+    createCompletion?: typeof createCodemmCompletion;
     validateReferenceSolution?: typeof validateReferenceSolution;
   };
 }): Promise<GeneratedProblem> {
@@ -239,7 +239,7 @@ export async function editDraftProblemWithAi(args: {
 
   const system = profile.generator.systemPrompt;
   const user = buildEditPrompt({ existing, instruction: args.instruction });
-  const createCompletion = args.deps?.createCompletion ?? createCodexCompletion;
+  const createCompletion = args.deps?.createCompletion ?? createCodemmCompletion;
   const validateFn = args.deps?.validateReferenceSolution ?? validateReferenceSolution;
 
   let lastErr: unknown = null;
@@ -248,7 +248,7 @@ export async function editDraftProblemWithAi(args: {
       const completion = await createCompletion({
         system,
         user: attempt === 1 ? user : `${user}\n\nPrevious attempt failed. Return ONLY valid JSON matching the schema exactly.`,
-        model: CODEX_MODEL,
+        ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
         temperature: TEMPERATURE,
         maxTokens: MAX_TOKENS,
       });
@@ -274,4 +274,3 @@ export async function editDraftProblemWithAi(args: {
   if (lastErr instanceof Error) throw lastErr;
   throw new Error("Failed to edit problem.");
 }
-

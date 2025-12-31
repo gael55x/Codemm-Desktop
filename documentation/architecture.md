@@ -14,7 +14,7 @@ This backend is built around a deterministic “SpecBuilder” agent loop plus a
 - **Deterministic compiler boundary**: `src/compiler/*`
 - **Generation pipeline**: `src/planner/*`, `src/generation/*`
 - **Language adapters (run/judge + rules)**: `src/languages/*`
-- **LLM client** (OpenAI-compatible): `src/infra/llm/codex.ts`
+- **LLM client** (provider-agnostic): `src/infra/llm/codemmProvider.ts` (+ `src/infra/llm/adapters/*`)
 - **Persistence** (SQLite): `src/database.ts` → `data/codem.db`
 
 ## Codemm learning modes

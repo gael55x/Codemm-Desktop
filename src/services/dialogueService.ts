@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ActivitySpec } from "../contracts/activitySpec";
 import type { SpecDraft } from "../compiler/specDraft";
 import { ActivityLanguageSchema } from "../contracts/activitySpec";
-import { createCodexCompletion } from "../infra/llm/codex";
+import { createCodemmCompletion } from "../infra/llm";
 import { tryParseJson } from "../utils/jsonParser";
 import { analyzeSpecGaps, defaultNextQuestionFromGaps } from "../agent/specAnalysis";
 import { computeConfirmRequired } from "../agent/fieldCommitmentPolicy";
@@ -22,7 +22,7 @@ export type DialogueTurnOutput = {
   nextQuestion?: { key: string; prompt: string };
 };
 
-const CODEX_MODEL = process.env.CODEX_MODEL ?? "gpt-4.1";
+const CODEX_MODEL = process.env.CODEX_MODEL;
 
 const ProposedPatchSchema = z
   .object({
@@ -178,10 +178,10 @@ Return JSON with this exact shape:
   let parsed: z.infer<typeof DialogueLlmSchema> | null = null;
 
   try {
-    const completion = await createCodexCompletion({
+    const completion = await createCodemmCompletion({
       system,
       user,
-      model: CODEX_MODEL,
+      ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
       temperature: 0,
       maxTokens: 900,
     });

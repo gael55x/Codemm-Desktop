@@ -40,7 +40,7 @@ Prereqs: Node.js 18+, npm, Docker Desktop (or a running Docker daemon).
 1) Configure env:
 
 - `cp .env.example .env`
-- Set at least `CODEX_API_KEY` and `JWT_SECRET`
+- Set `JWT_SECRET` and one LLM API key (`CODEX_API_KEY`/`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY`/`GOOGLE_API_KEY`)
 
 2) Run (recommended one-command runner; builds judge images if needed):
 
@@ -72,9 +72,18 @@ All variables are read from `.env` (see `.env.example`).
 | --- | --- | --- |
 | `PORT` | HTTP port | `4000` |
 | `JWT_SECRET` | JWT signing secret | (required) |
-| `CODEX_API_KEY` | LLM API key (OpenAI-compatible) | (required) |
+| `CODEX_PROVIDER` | LLM provider (`openai`/`anthropic`/`gemini`/`auto`) | `auto` |
+| `CODEX_API_KEY` | OpenAI-compatible API key (preferred name) | (one required) |
+| `OPENAI_API_KEY` | OpenAI API key (alias) | (optional) |
+| `ANTHROPIC_API_KEY` | Anthropic API key | (optional) |
+| `GEMINI_API_KEY` | Gemini API key | (optional) |
+| `GOOGLE_API_KEY` | Gemini API key (alias) | (optional) |
 | `CODEX_MODEL` | Override model name | (optional) |
 | `CODEX_BASE_URL` | Override API base URL | (optional) |
+| `ANTHROPIC_MODEL` | Override Anthropic model | (optional) |
+| `ANTHROPIC_BASE_URL` | Override Anthropic API base URL | (optional) |
+| `GEMINI_MODEL` | Override Gemini model | (optional) |
+| `GEMINI_BASE_URL` | Override Gemini API base URL | (optional) |
 | `CODEMM_DB_PATH` | SQLite DB file path (or `:memory:`) | `data/codem.db` |
 | `JUDGE_TIMEOUT_MS` | Judge timeout cap (ms) | `15000` |
 | `CODEMM_RUN_TIMEOUT_MS` | `/run` timeout (ms, cap 30000) | (optional) |

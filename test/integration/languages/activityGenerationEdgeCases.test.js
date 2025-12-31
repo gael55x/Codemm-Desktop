@@ -8,9 +8,10 @@ const { userDb } = require("../../../src/database");
 const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../src/services/sessionService");
 
 function installStubs(t) {
-  const codex = require("../../../src/infra/llm/codex");
+  const codex = require("../../../src/infra/llm/codemmProvider");
   const validator = require("../../../src/generation/referenceSolutionValidator");
-  const originalCreate = codex.createCodexCompletion;
+  const originalCreateCodemm = codex.createCodemmCompletion;
+  const originalCreateCodex = codex.createCodexCompletion;
   const originalValidate = validator.validateReferenceSolution;
 
   let generationCall = 0;
@@ -67,7 +68,7 @@ function installStubs(t) {
     };
   }
 
-  codex.createCodexCompletion = async ({ system, user }) => {
+  const stub = async ({ system, user }) => {
     if (String(system).includes("Codemm's dialogue layer")) {
       const m = String(user).match(/Latest user message:\n([\s\S]*)\n\nReturn JSON with this exact shape:/);
       const latest = m?.[1] ?? "";
@@ -82,11 +83,14 @@ function installStubs(t) {
 
     throw new Error(`Unexpected LLM call in test (system=${String(system).slice(0, 80)})`);
   };
+  codex.createCodemmCompletion = stub;
+  codex.createCodexCompletion = stub;
 
   validator.validateReferenceSolution = async () => {};
 
   t.after(() => {
-    codex.createCodexCompletion = originalCreate;
+    codex.createCodemmCompletion = originalCreateCodemm;
+    codex.createCodexCompletion = originalCreateCodex;
     validator.validateReferenceSolution = originalValidate;
   });
 }

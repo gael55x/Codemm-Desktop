@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { GeneratedProblemDraft } from "../contracts/problem";
 import type { ProblemSlot } from "../planner/types";
-import { createCodexCompletion } from "../infra/llm/codex";
+import { createCodemmCompletion, hasAnyLlmApiKey } from "../infra/llm";
 import { tryParseJson } from "../utils/jsonParser";
 import { trace, traceText } from "../utils/trace";
 
@@ -108,7 +108,7 @@ export async function generateDynamicGuidedHintLines(args: {
   if (process.env.NODE_ENV === "test" && !injectedCompletion) return [];
 
   // If we don't have credentials, skip (best-effort feature).
-  if (!process.env.CODEX_API_KEY && !injectedCompletion) return [];
+  if (!hasAnyLlmApiKey() && !injectedCompletion) return [];
 
   const { system, user } = buildHintsPrompt({
     draft: args.draft,
@@ -117,7 +117,7 @@ export async function generateDynamicGuidedHintLines(args: {
     maxHints,
   });
 
-  const createCompletion = injectedCompletion ?? createCodexCompletion;
+  const createCompletion = injectedCompletion ?? createCodemmCompletion;
   const completion = await createCompletion({
     system,
     user,
@@ -147,4 +147,4 @@ export async function generateDynamicGuidedHintLines(args: {
   return sanitized;
 }
 
-export type GuidedHintsDeps = { createCompletion?: typeof createCodexCompletion };
+export type GuidedHintsDeps = { createCompletion?: typeof createCodemmCompletion };

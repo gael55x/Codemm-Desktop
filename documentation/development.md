@@ -12,7 +12,7 @@ From `Codem-backend/`:
 
 - `cp .env.example .env`
 - Set:
-  - `CODEX_API_KEY` (required for agent/generation)
+  - an LLM API key (required for agent/generation): `CODEX_API_KEY`/`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY`/`GOOGLE_API_KEY`
   - `JWT_SECRET` (required for auth endpoints)
 
 ## Run
@@ -47,13 +47,15 @@ Rebuild images:
 ## Key environment variables
 
 Required:
-- `CODEX_API_KEY`
+- one of: `CODEX_API_KEY`/`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`
 - `JWT_SECRET`
 
 Common:
 - `PORT` (default `4000`)
-- `CODEX_MODEL` (default `gpt-4.1`)
+- `CODEX_PROVIDER` (`auto`/`openai`/`anthropic`/`gemini`)
+- `CODEX_MODEL` (optional; provider-specific model name)
 - `CODEX_BASE_URL` (optional; OpenAI-compatible endpoint override)
+- `ANTHROPIC_MODEL`, `GEMINI_MODEL` (optional; provider-specific model override)
 - `JUDGE_TIMEOUT_MS` (default `15000`, cap `30000`)
 - `CODEMM_RUN_TIMEOUT_MS` (default `8000`, cap `30000`)
 
@@ -64,4 +66,3 @@ Tracing / debugging:
 
 Generation modes:
 - `CODEMM_WORKSPACE_GEN=1` allows Java “workspace mode” generation where enabled by prompts/rules.
-

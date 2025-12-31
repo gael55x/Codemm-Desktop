@@ -30,7 +30,7 @@ Codemm backend uses Node's built-in test runner (`node:test`) with CommonJS test
 ## Real-LLM e2e (required)
 
 - `test/integration/llm/realActivityGenerationE2e.test.js` runs the full flow (dialogue + generation + Docker validation) and requires:
-  - `CODEX_API_KEY` in the environment
+  - an LLM API key in the environment (one of `CODEX_API_KEY`/`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`)
   - local Docker running + judge images built (`./run-codem-backend.sh`)
 
 Defaults: this test only runs `CODEMM_E2E_COUNTS=2` unless you override it.

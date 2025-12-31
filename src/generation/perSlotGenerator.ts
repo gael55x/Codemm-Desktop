@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { createCodexCompletion } from "../infra/llm/codex";
+import { createCodemmCompletion } from "../infra/llm";
 import { tryParseJson } from "../utils/jsonParser";
 import { buildDefaultClassSkeleton, inferClassName } from "../utils/javaCodegen";
 import {
@@ -17,7 +17,7 @@ import { getTopLevelPublicTypeNames } from "../utils/javaSource";
 import type { SlotPromptContext } from "../languages/types";
 import { coerceSqlTestSuiteToJsonString } from "../languages/sql/rules";
 
-const CODEX_MODEL = process.env.CODEX_MODEL ?? "gpt-4.1";
+const CODEX_MODEL = process.env.CODEX_MODEL;
 const MAX_TOKENS = 5000;
 const TEMPERATURE = 0.3;
 
@@ -168,10 +168,10 @@ ${args.errorMessage}
 Return JSON: {"test_suite":"..."} only.
 `.trim();
 
-  const completion = await createCodexCompletion({
+  const completion = await createCodemmCompletion({
     system,
     user,
-    model: CODEX_MODEL,
+    ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
     temperature: 0.2,
     maxTokens: 2400,
   });
@@ -246,10 +246,10 @@ ${args.errorMessage}
 Return JSON: {"test_suite":"..."} only.
 `.trim();
 
-  const completion = await createCodexCompletion({
+  const completion = await createCodemmCompletion({
     system,
     user,
-    model: CODEX_MODEL,
+    ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
     temperature: 0,
     maxTokens: 2000,
   });
@@ -541,10 +541,10 @@ export async function generateSingleProblem(
   trace("generation.slot.start", { slotIndex: slot.index, difficulty: slot.difficulty, repair: Boolean(opts?.repair) });
   traceText("generation.prompt", prompt, { extra: { slotIndex: slot.index, repair: Boolean(opts?.repair) } });
 
-  const completion = await createCodexCompletion({
+  const completion = await createCodemmCompletion({
     system: getSystemPromptForSlot(slot),
     user: prompt,
-    model: CODEX_MODEL,
+    ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
     temperature: TEMPERATURE,
     maxTokens: MAX_TOKENS,
   });

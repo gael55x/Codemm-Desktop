@@ -7,6 +7,7 @@ const { execSync } = require("node:child_process");
 
 const { userDb, activityDb } = require("../../../src/database");
 const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../src/services/sessionService");
+const { hasAnyLlmApiKey } = require("../../../src/infra/llm/codemmProvider");
 
 /**
  * Real-LLM + Docker matrix runner.
@@ -29,8 +30,10 @@ function parseCsvEnv(name, fallback) {
 }
 
 function preflightOrThrow() {
-  if (!process.env.CODEX_API_KEY) {
-    throw new Error("Missing CODEX_API_KEY. Set it (and ensure network access) to run CODEMM_E2E_REAL_LLM tests.");
+  if (!hasAnyLlmApiKey()) {
+    throw new Error(
+      "Missing LLM API key. Set one of CODEX_API_KEY/OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY (and ensure network access) to run CODEMM_E2E_REAL_LLM tests."
+    );
   }
 
   // These tests run the full generation pipeline, including Docker validation.

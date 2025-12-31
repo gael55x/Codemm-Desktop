@@ -12,6 +12,7 @@ const {
 const { deriveProblemPlan } = require("../src/planner");
 const { buildGuidedPedagogyPolicy } = require("../src/planner/pedagogy");
 const { generateProblemsFromPlan } = require("../src/generation");
+const { hasAnyLlmApiKey } = require("../src/infra/llm/codemmProvider");
 
 function parseArg(name) {
   const prefix = `--${name}=`;
@@ -95,8 +96,10 @@ async function main() {
     throw new Error(`--difficulty must be easy|medium|hard (got "${difficulty}")`);
   }
 
-  if (!process.env.CODEX_API_KEY) {
-    throw new Error("CODEX_API_KEY is required for smoke generation.");
+  if (!hasAnyLlmApiKey()) {
+    throw new Error(
+      "An LLM API key is required for smoke generation. Set one of CODEX_API_KEY/OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY."
+    );
   }
 
   // Deterministic topic sets per language (kept short on purpose).
@@ -126,4 +129,3 @@ main().catch((err) => {
   console.error(`[smoke] failed: ${err?.message ?? err}`);
   process.exit(1);
 });
-
