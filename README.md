@@ -1,30 +1,42 @@
-# Codemm Frontend
+# Codemm
 
-Next.js app for Codemm (the AI activity generator + solver UI).
+Codemm is an open-source AI agent that turns a short chat into a fully-verified programming activity (problems + tests), and provides Docker-sandboxed `run`/`submit` for execution and grading.
 
-## Features
+Frontend repo (this): https://github.com/gael55x/Codem-frontend  
+Backend repo: https://github.com/gael55x/Codem-backend
 
-- SpecBuilder chat (Practice/Guided)
-- Draft activity review + AI edit per problem
-- Activity solver UI (run/submit)
-- Community feed (`/community`) for browsing shared activities
-- Auth + profile pages
+## What you get
 
-## Prerequisites
+- **SpecBuilder chat**: deterministic agent loop that turns chat → `ActivitySpec`
+- **Generation pipeline**: LLM drafts → contract validation → Docker verification → persist (reference artifacts discarded)
+- **Solver UI**: in-browser editor + `run`/`submit` against the backend judge
+- **Community feed** (`/community`), **auth**, and **profile**
 
-- Node.js 18+ (recommended)
-- Codemm backend running locally or deployed
+## Supported languages
 
-## Quickstart
+The backend ships Docker judge images for: Java, Python, C++, SQL.
+
+## Local development (recommended)
+
+Prereqs: Node.js 18+, npm, Docker Desktop (or a running Docker daemon).
+
+1) Start the backend:
 
 ```bash
-cd codem-frontend
-npm install
+git clone https://github.com/gael55x/Codem-backend.git
+cd Codem-backend
+cp .env.example .env
+# set CODEX_API_KEY + JWT_SECRET in .env
+./run-codem-backend.sh
+```
 
-# optional
+2) Start the frontend (new terminal):
+
+```bash
+git clone https://github.com/gael55x/Codem-frontend.git
+cd Codem-frontend/codem-frontend
 cp .env.local.example .env
-
-# run
+npm install
 npm run dev
 ```
 
@@ -32,18 +44,28 @@ Open `http://localhost:3000`.
 
 ## Configuration
 
-- `NEXT_PUBLIC_BACKEND_URL` (default: `http://localhost:4000`)
+Frontend env lives in `codem-frontend/.env` (or `codem-frontend/.env.local`).
 
-## Scripts
+- `NEXT_PUBLIC_BACKEND_URL`: backend base URL (default fallback in code: `http://localhost:4000`)
+
+Backend env lives in the backend repo’s `.env` (see `Codem-backend/.env.example`).
+
+## Scripts (frontend)
+
+Run these inside `codem-frontend/`:
 
 - `npm run dev` – local dev server
 - `npm run build` – production build
 - `npm run start` – serve production build
 - `npm run lint` – run ESLint
 
-## Repo Layout
+## Repo layout (frontend)
 
 - `codem-frontend/src/app` – Next.js App Router pages/routes
-- `codem-frontend/src/components` – shared UI components (e.g. onboarding tour)
-- `codem-frontend/src/lib` – frontend utilities (SpecBuilder UX helpers, etc.)
+- `codem-frontend/src/components` – shared UI components
+- `codem-frontend/src/lib` – frontend utilities (API helpers, UX helpers)
 
+## Security notes
+
+- `/run` and `/submit` execute untrusted code; do not expose the backend publicly without additional hardening.
+- Tracing/progress streams are sanitized to omit prompts, raw generations, and reference artifacts.
