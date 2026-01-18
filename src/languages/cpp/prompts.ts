@@ -19,6 +19,8 @@ Problem quality rules (non-negotiable):
 - You MUST #include <functional> if you use std::function.
 - You MUST #include <algorithm> if you use std::sort, std::max, etc.
 - You MUST #include <numeric> if you use std::accumulate.
+- You MUST #include <sstream> if you use std::stringstream.
+
 
 
 Solution interface:
@@ -87,6 +89,7 @@ Return a JSON object (not array) with these exact fields:
   "id": "unique-problem-id",
   "title": "Problem Title",
   "description": "Detailed problem description...",
+  "reasoning": "Plan: I will handle integer overflow by... I will include <functional>...",
   "starter_code": "#include <bits/stdc++.h>\\n\\n// Implement solve(...) below.\\n",
   "test_suite": "#include <bits/stdc++.h>\\n#include \\\"solution.cpp\\\"\\n\\n...\\n",
   "reference_solution": "#include <bits/stdc++.h>\\n\\n// solve(...)\\n",

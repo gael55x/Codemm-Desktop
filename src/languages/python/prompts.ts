@@ -52,6 +52,7 @@ Return a JSON object (not array) with these exact fields:
   "id": "unique-problem-id",
   "title": "Problem Title",
   "description": "Detailed problem description...",
+  "reasoning": "Plan: 1. Handle edge case X... 2. Verify Y...",
   "starter_code": "def solve(...):\\n    # TODO\\n    pass\\n",
   "test_suite": "import pytest\\nfrom solution import solve\\n\\n...\\n",
   "reference_solution": "def solve(...):\\n    ...\\n",

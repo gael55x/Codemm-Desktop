@@ -67,6 +67,9 @@ const CommonProblemFieldsSchema = z
 
     // Optional pedagogy metadata (no safety impact).
     pedagogy: PedagogySchema.optional(),
+
+    // Chain-of-Thought reasoning (optional, used to improve generation quality).
+    reasoning: z.string().optional(),
   })
   .strict();
 

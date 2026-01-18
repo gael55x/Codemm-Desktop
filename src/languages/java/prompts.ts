@@ -30,7 +30,8 @@ Test suite requirements:
 Reference solution requirements (legacy):
 - reference_solution must compile and pass all tests
 - starter_code and reference_solution must each declare at most ONE top-level public type (helper types should be non-public).
-- Do NOT use stray backslashes. Do NOT double-escape newlines (use actual newlines in the JSON string value, not literal "\n" characters).
+- JSON formatting: represent newlines as "\n" (single backslash). Do NOT use "\\n" (double backslash).
+
 
 
 Reference workspace requirements (workspace):
@@ -179,6 +180,7 @@ Return a JSON object (not array) with these exact fields:
   "id": "unique-problem-id",
   "title": "Problem Title",
   "description": "Detailed problem description...",
+  "reasoning": "Plan: 1. Handle edge case X by returning Y. 2. Tests will expect Y...",
   "starter_code": "public class ClassName { ... }",
   "test_suite": "import org.junit.jupiter.api.Test; ...",
   "reference_solution": "public class ClassName { /* complete implementation */ }",
@@ -197,6 +199,7 @@ Critical rules:
 - starter_code and reference_solution must declare at most ONE top-level public type.
 - All Java code must have NO package declarations
 - Test class must import org.junit.jupiter.api.Test and static org.junit.jupiter.api.Assertions.*
+- Use the "reasoning" field to explain your implementation plan and edge case strategy BEFORE writing code.
 
 Respond ONLY with JSON. NO markdown. NO code fences. NO extra text.`;
 }

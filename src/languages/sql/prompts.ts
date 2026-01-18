@@ -39,6 +39,7 @@ Return a JSON object (not array) with these exact fields:
   "id": "unique-problem-id",
   "title": "Problem Title",
   "description": "Detailed problem description (include table schema description in prose)...",
+  "reasoning": "Plan: The query requires a self-join... I will order results by ID...",
   "starter_code": "SELECT ...",
   "test_suite": "{\\n  \\\"schema_sql\\\": \\\"...\\\",\\n  \\\"cases\\\": [ ... ]\\n}",
   "reference_solution": "SELECT ...",
@@ -52,9 +53,12 @@ Return a JSON object (not array) with these exact fields:
 Critical rules:
 - starter_code and reference_solution must be a single read-only query (WITH/SELECT only)
 - test_suite must be valid JSON with schema_sql + exactly 8 cases: test_case_1..test_case_8
-- Each case must be deterministic and match expected columns/rows exactly
-- If order matters, set order_matters=true and include ORDER BY in the solution query
+- Each case object must look like: { "name": "test_case_N", "seed_sql": "...", "expected": { "columns": ["col"], "rows": [[val]] } }
+- Ensure "cases" is an array of 8 objects.
+- Ensure "expected" matches the query columns/rows exactly.
+- If order matters, set order_matters=true and include ORDER BY in the solution query.
 
 Respond ONLY with JSON. NO markdown. NO code fences. NO extra text.`;
+
 }
 
