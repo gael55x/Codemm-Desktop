@@ -104,6 +104,14 @@ export const ActivitySpecSchema = z
         });
       }
     }
+    // SQL only supports stdout style (no return/mixed) to avoid persistent schema validation issues.
+    if (spec.language === "sql" && spec.problem_style !== "stdout") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["problem_style"],
+        message: "SQL only supports 'stdout' style (console output checking).",
+      });
+    }
   });
 
 export type ActivitySpec = z.infer<typeof ActivitySpecSchema>;
