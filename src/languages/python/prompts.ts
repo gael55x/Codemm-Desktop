@@ -71,6 +71,7 @@ ${styleRules}
 - No print-based tests; use assertions only (stdout style captures via capsys)
 - No randomness, no pytest.approx, no flaky behavior
 - Keep test inputs small enough to run comfortably under strict time limits (avoid huge loops/recursion depth).
+- Ensure generated JSON strings are properly escaped (especially backslashes and quotes).
 
 Respond ONLY with JSON. NO markdown. NO code fences. NO extra text.`;
 }

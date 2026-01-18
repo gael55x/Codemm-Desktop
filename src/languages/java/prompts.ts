@@ -30,6 +30,8 @@ Test suite requirements:
 Reference solution requirements (legacy):
 - reference_solution must compile and pass all tests
 - starter_code and reference_solution must each declare at most ONE top-level public type (helper types should be non-public).
+- Do NOT use stray backslashes. Do NOT double-escape newlines (use actual newlines in the JSON string value, not literal "\n" characters).
+
 
 Reference workspace requirements (workspace):
 - reference_workspace must compile and pass all tests

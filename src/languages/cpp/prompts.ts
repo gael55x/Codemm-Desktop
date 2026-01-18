@@ -16,6 +16,10 @@ Problem quality rules (non-negotiable):
 - Do NOT prescribe a specific algorithm unless it is guaranteed correct for all valid inputs.
   (Example pitfall: "coin change with greedy" is not correct for arbitrary denominations.)
 - Prefer describing required behavior and constraints, then implement a correct reference_solution.
+- You MUST #include <functional> if you use std::function.
+- You MUST #include <algorithm> if you use std::sort, std::max, etc.
+- You MUST #include <numeric> if you use std::accumulate.
+
 
 Solution interface:
 - Provide a single entry function named solve(...)
