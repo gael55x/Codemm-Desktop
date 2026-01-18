@@ -1,7 +1,8 @@
 import type { CompletionOpts, CompletionResult } from "../types";
 
 // Default to a broadly available model (free keys often lack access to Pro).
-const DEFAULT_GEMINI_MODEL = "gemini-1.5-flash";
+// Default to a broadly available model (Pro is preferred for reasoning, Flash for backup).
+const DEFAULT_GEMINI_MODEL = "gemini-1.5-pro";
 
 function getGeminiApiKey(): string | null {
   const k = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
@@ -24,6 +25,7 @@ function normalizeGeminiModelName(name: string): string {
 
 function looksLikeModelNotFound(status: number, raw: string): boolean {
   if (status === 404) return true;
+  if (status === 400 && /not found/i.test(raw)) return true;
   const msg = String(raw ?? "");
   return /models\/.+ is not found|not supported for generateContent|call listmodels/i.test(msg);
 }
@@ -44,9 +46,13 @@ function pickSupportedModelFromList(models: GeminiModelInfo[], preferred: string
     if (supported.includes(want)) return want;
   }
 
-  // Heuristic: prefer flash models, then the lexicographically earliest stable pick.
+  // Heuristic: Prefer "pro" models for quality, then "flash" for speed/availability.
+  const pro = supported.filter((m) => /\bpro\b/i.test(m));
+  if (pro.length) return pro.sort((a, b) => a.localeCompare(b))[0]!;
+
   const flash = supported.filter((m) => /\bflash\b/i.test(m));
   if (flash.length) return flash.sort((a, b) => a.localeCompare(b))[0]!;
+
   return supported.sort((a, b) => a.localeCompare(b))[0]!;
 }
 
@@ -99,8 +105,11 @@ export async function createGeminiCompletion(
     return Array.isArray(parsed?.models) ? (parsed.models as GeminiModelInfo[]) : [];
   }
 
-  // Some free-tier keys don't have access to Pro models. If the preferred model isn't supported,
-  // retry with Flash; if that still fails, use ListModels to find a supported generateContent model.
+  // Fallback Logic:
+  // 1. Try preferred model (default: gemini-1.5-pro)
+  // 2. If 404/NotFound (e.g. free tier limit or invalid name) -> Try "gemini-1.5-flash" explicitly
+  // 3. If still fails -> ListModels and pick best available
+
   let finalRaw: string;
   let finalStatus: number;
   const tried = new Set<string>();
@@ -111,11 +120,13 @@ export async function createGeminiCompletion(
   finalRaw = first.raw;
   finalStatus = first.status;
 
+  // Explicit Fallback: particular for free tier users where 'pro' might be unavailable or 404s
   if (looksLikeModelNotFound(finalStatus, finalRaw)) {
-    const flash = normalizeGeminiModelName(DEFAULT_GEMINI_MODEL);
-    if (!tried.has(flash)) {
-      tried.add(flash);
-      const retry = await requestOnce(flash);
+    // console.warn(`Gemini model ${firstModel} failed (${finalStatus}), trying fallback logic...`);
+    const fallbackFlash = normalizeGeminiModelName("gemini-1.5-flash");
+    if (!tried.has(fallbackFlash)) {
+      tried.add(fallbackFlash);
+      const retry = await requestOnce(fallbackFlash);
       finalRaw = retry.raw;
       finalStatus = retry.status;
     }
@@ -124,12 +135,10 @@ export async function createGeminiCompletion(
   if (looksLikeModelNotFound(finalStatus, finalRaw)) {
     const models = await listModels();
     const picked = pickSupportedModelFromList(models, [
-      DEFAULT_GEMINI_MODEL,
+      "gemini-1.5-pro",
+      "gemini-1.5-flash",
       "gemini-2.0-flash",
       "gemini-2.0-flash-lite",
-      "gemini-1.5-flash",
-      "gemini-1.5-flash-8b",
-      "gemini-1.5-pro",
     ]);
     if (picked && !tried.has(picked)) {
       tried.add(picked);
@@ -140,7 +149,9 @@ export async function createGeminiCompletion(
   }
 
   if (finalStatus < 200 || finalStatus >= 300) {
-    throw new Error(`Gemini API error (${finalStatus}): ${finalRaw.slice(0, 800)}`);
+    // Enhance error with the list of models we tried
+    const triedList = Array.from(tried).join(", ");
+    throw new Error(`Gemini API error (${finalStatus}) after trying [${triedList}]: ${finalRaw.slice(0, 800)}`);
   }
 
   let parsed: any;
@@ -154,9 +165,9 @@ export async function createGeminiCompletion(
   const text =
     Array.isArray(parts)
       ? parts
-          .map((p: any) => (p && typeof p.text === "string" ? p.text : ""))
-          .join("")
-          .trim()
+        .map((p: any) => (p && typeof p.text === "string" ? p.text : ""))
+        .join("")
+        .trim()
       : "";
 
   return { content: [{ type: "text", text }] };
