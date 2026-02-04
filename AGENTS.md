@@ -31,8 +31,9 @@ Near-term direction: bundle backend + frontend into the packaged app (no separat
 ## Required Practices
 
 - Incremental commits and pushes.
-- Every iteration must include/update a handoff doc:
-  - `docs/handoff/YYYY-MM-DD*.md`
+- Every iteration must update the handoff doc for the day:
+  - `docs/handoff/YYYY-MM-DD.md`
+  - Append an entry under the "Iteration Log" for that day.
   - Include: what changed, how to run, known issues, next steps.
 - Keep docs current:
   - `README.md` (run + high-level)
