@@ -1,10 +1,15 @@
 .DS_Store
 
 # Dependencies / builds
-node_modules/
-dist/
-out/
+**/node_modules/
+**/dist/
+**/.next/
+**/out/
 
 # Logs
 *.log
 
+# Local DB / data
+**/data/*.db
+**/data/*.sqlite
+**/data/*.sqlite3

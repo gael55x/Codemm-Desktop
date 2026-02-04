@@ -13,10 +13,13 @@ This file defines maintainability + security rules for work in this repository.
 
 ## Repo Boundaries (Today)
 
-- This repo is an Electron wrapper.
-- It starts `Codemm-backend` and `Codemm-frontend` as child processes (see `main.js`).
+- This repo is a monorepo:
+  - `apps/ide` Electron wrapper
+  - `apps/backend` backend (agent loop + Docker judge + SQLite)
+  - `apps/frontend` frontend UI (Next.js)
+- The Electron wrapper starts backend + frontend as child processes (see `apps/ide/main.js`).
 
-Near-term direction: bundle backend + frontend into the app (no separate terminals, no separate repos required to *run*).
+Near-term direction: bundle backend + frontend into the packaged app (no separate terminals, no system Node required).
 
 ## Dev Commands
 
@@ -65,4 +68,3 @@ When we say “bundled”, we mean:
 - no `npm install`, no separate terminals
 - backend + frontend run from inside the app bundle
 - native deps (e.g., `better-sqlite3`) are rebuilt for Electron
-

@@ -1,14 +1,19 @@
 {
-  "name": "codemm-ide",
-  "version": "0.0.1",
+  "name": "codemm",
   "private": true,
-  "main": "main.js",
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
-    "dev": "electron .",
-    "start": "electron ."
-  },
-  "devDependencies": {
-    "electron": "^30.0.0"
+    "dev": "npm --workspace codemm-ide run dev",
+    "dev:backend": "npm --workspace codem-backend run dev",
+    "dev:frontend": "npm --workspace codem-frontend run dev",
+    "build:backend": "npm --workspace codem-backend run build",
+    "build:frontend": "npm --workspace codem-frontend run build",
+    "lint": "npm --workspace codem-frontend run lint",
+    "test": "npm --workspace codem-backend run test",
+    "test:unit": "npm --workspace codem-backend run test:unit",
+    "test:integration": "npm --workspace codem-backend run test:integration"
   }
 }
 

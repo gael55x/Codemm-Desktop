@@ -46,8 +46,8 @@ Symptom:
 
 Fix:
 
-- From `Codemm-frontend/`: run `npm install`.
-- Then relaunch `Codemm-IDE`.
+- From the repo root: run `npm install`.
+- Then relaunch: `npm run dev`.
 
 ## Backend Fails Building Judge Images
 
@@ -59,7 +59,7 @@ Fix:
 
 - Confirm Docker Desktop has enough resources (CPU/RAM).
 - Try rebuilding images:
-  - From `Codemm-backend/`: `REBUILD_JUDGE=1 ./run-codem-backend.sh`
+  - From repo root: `CODEMM_REBUILD_JUDGE=1 npm run dev`
 
 ## App Hangs On “Starting…”
 
@@ -73,4 +73,3 @@ Fix:
 - Confirm these URLs work in a browser:
   - `http://127.0.0.1:4000/health`
   - `http://127.0.0.1:3000/`
-

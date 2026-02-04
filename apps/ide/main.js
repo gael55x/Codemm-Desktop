@@ -1,5 +1,5 @@
 /* eslint-disable no-console */
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, shell } = require("electron");
 const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const http = require("http");
@@ -112,10 +112,60 @@ async function ensureNodeModules({ dir, label, env }) {
   return code === 0;
 }
 
+async function spawnAndWait(name, cmd, args, { cwd, env }) {
+  const child = spawn(cmd, args, {
+    cwd,
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  wireLogs(name, child);
+
+  const code = await new Promise((resolve) => {
+    child.on("exit", (c) => resolve(typeof c === "number" ? c : 1));
+    child.on("error", () => resolve(1));
+  });
+  return code;
+}
+
+async function ensureJudgeImages({ dockerBin, backendDir, env }) {
+  const rebuild = process.env.CODEMM_REBUILD_JUDGE === "1";
+  const images = [
+    { image: "codem-java-judge", dockerfile: "Dockerfile.java-judge" },
+    { image: "codem-python-judge", dockerfile: "Dockerfile.python-judge" },
+    { image: "codem-cpp-judge", dockerfile: "Dockerfile.cpp-judge" },
+    { image: "codem-sql-judge", dockerfile: "Dockerfile.sql-judge" },
+  ];
+
+  for (const { image, dockerfile } of images) {
+    if (rebuild) {
+      spawnSync(dockerBin, ["image", "rm", "-f", `${image}:latest`], { stdio: "ignore" });
+    }
+
+    const exists =
+      spawnSync(dockerBin, ["image", "inspect", `${image}:latest`], { stdio: "ignore" }).status ===
+      0;
+
+    if (exists && !rebuild) continue;
+
+    const code = await spawnAndWait(
+      `docker:${image}`,
+      dockerBin,
+      ["build", "-f", dockerfile, "-t", image, "."],
+      { cwd: backendDir, env },
+    );
+    if (code !== 0) return false;
+  }
+
+  return true;
+}
+
 async function createWindowAndBoot() {
-  const rootDir = path.resolve(__dirname, "..");
-  const backendDir = process.env.CODEMM_BACKEND_DIR || path.join(rootDir, "Codemm-backend");
-  const frontendDir = process.env.CODEMM_FRONTEND_DIR || path.join(rootDir, "Codemm-frontend");
+  // __dirname = apps/ide
+  const repoRoot = path.resolve(__dirname, "..", "..");
+  const backendDir =
+    process.env.CODEMM_BACKEND_DIR || path.join(repoRoot, "apps", "backend");
+  const frontendDir =
+    process.env.CODEMM_FRONTEND_DIR || path.join(repoRoot, "apps", "frontend");
 
   const dockerBin = findDockerBinary();
   if (!dockerBin) {
@@ -156,6 +206,15 @@ async function createWindowAndBoot() {
       nodeIntegration: false,
       contextIsolation: true,
     },
+  });
+
+  // Hard block popups; if the UI needs external links, we can explicitly open them with `shell.openExternal`.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    // If this is an external URL, open it in the user's browser.
+    if (url && /^https?:\/\//.test(url)) {
+      shell.openExternal(url).catch(() => {});
+    }
+    return { action: "deny" };
   });
 
   win.loadURL(
@@ -230,22 +289,35 @@ async function createWindowAndBoot() {
     baseEnv.PATH = baseEnv.PATH ? `${dockerDir}:${baseEnv.PATH}` : dockerDir;
   }
 
-  // Ensure frontend dependencies exist (backend deps are handled by run-codem-backend.sh).
+  // Ensure monorepo dependencies exist (npm workspaces).
   {
-    const ok = await ensureNodeModules({ dir: frontendDir, label: "frontend", env: baseEnv });
+    const ok = await ensureNodeModules({ dir: repoRoot, label: "repo", env: baseEnv });
     if (!ok) {
       dialog.showErrorBox(
-        "Frontend Dependencies Failed",
-        `Failed to install frontend npm deps in ${frontendDir}. Check terminal logs.`,
+        "Dependencies Failed",
+        `Failed to install npm dependencies in ${repoRoot}. Check terminal logs.`,
       );
       app.quit();
       return;
     }
   }
 
-  // Start backend using the repo's one-command runner (builds judge images if needed).
-  backendProc = spawn("bash", ["./run-codem-backend.sh"], {
-    cwd: backendDir,
+  // Ensure Docker judge images exist (Codemm compiles/runs in Docker).
+  {
+    const ok = await ensureJudgeImages({ dockerBin, backendDir, env: baseEnv });
+    if (!ok) {
+      dialog.showErrorBox(
+        "Judge Images Failed",
+        "Failed to build judge Docker images. Check terminal logs and ensure Docker Desktop has enough resources.",
+      );
+      app.quit();
+      return;
+    }
+  }
+
+  // Start backend (workspace).
+  backendProc = spawn("npm", ["--workspace", "codem-backend", "run", "dev"], {
+    cwd: repoRoot,
     env: {
       ...baseEnv,
       PORT: String(DEFAULT_BACKEND_PORT),
@@ -282,9 +354,9 @@ async function createWindowAndBoot() {
     return;
   }
 
-  // Start frontend dev server (Next.js).
-  frontendProc = spawn("npm", ["run", "dev"], {
-    cwd: frontendDir,
+  // Start frontend dev server (workspace).
+  frontendProc = spawn("npm", ["--workspace", "codem-frontend", "run", "dev"], {
+    cwd: repoRoot,
     env: {
       ...baseEnv,
       PORT: String(DEFAULT_FRONTEND_PORT),

@@ -5,10 +5,11 @@ This document describes what the desktop wrapper does (and does not do).
 ## What It Does
 
 - Validates Docker is installed and running (`docker info`).
-- Starts `Codemm-backend` as a child process using `../Codemm-backend/run-codem-backend.sh`.
+- Ensures monorepo dependencies are installed (`npm install` in repo root if `node_modules/` is missing).
+- Builds judge Docker images if missing (from `apps/backend/Dockerfile.*-judge`).
+- Starts `apps/backend` as a child process (via npm workspaces).
 - Waits for backend readiness via `GET /health` (default: `http://127.0.0.1:4000/health`).
-- Ensures `Codemm-frontend` dependencies are installed (`npm install` if `node_modules/` is missing).
-- Starts `Codemm-frontend` as a child process (`npm run dev`).
+- Starts `apps/frontend` as a child process (via npm workspaces).
 - Waits for frontend readiness (default: `http://127.0.0.1:3000/`).
 - Opens the frontend URL inside an Electron `BrowserWindow`.
 - On app quit, terminates both child processes.
@@ -23,9 +24,10 @@ This document describes what the desktop wrapper does (and does not do).
 
 - `CODEMM_BACKEND_PORT` default `4000`
 - `CODEMM_FRONTEND_PORT` default `3000`
-- `CODEMM_BACKEND_DIR` default `../Codemm-backend`
-- `CODEMM_FRONTEND_DIR` default `../Codemm-frontend`
+- `CODEMM_BACKEND_DIR` default `apps/backend`
+- `CODEMM_FRONTEND_DIR` default `apps/frontend`
 - `DOCKER_PATH` optional path to the `docker` binary (helps for GUI-launched apps with a limited PATH)
+- `CODEMM_REBUILD_JUDGE=1` forces rebuilding judge Docker images on launch
 
 ## Logging
 
@@ -42,4 +44,3 @@ Electron window is configured with:
 - `contextIsolation: true`
 
 If we add IPC later, we should do it via a strict `preload` bridge with allowlisted channels only.
-

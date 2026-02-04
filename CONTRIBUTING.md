@@ -1,16 +1,17 @@
 # Contributing (Codemm-IDE)
 
-Codemm-IDE is an Electron wrapper around the existing repos:
+Codemm-IDE is an Electron wrapper around the in-repo apps:
 
-- `../Codemm-backend` (Express + Docker judge)
-- `../Codemm-frontend` (Next.js UI)
+- `apps/backend` (Express + Docker judge)
+- `apps/frontend` (Next.js UI)
 
 The goal is a single desktop app experience while keeping backend determinism and Docker-based judging intact.
 
 ## Repo Layout
 
-- `main.js` Electron main process (starts backend + frontend, then opens a window)
-- `package.json` Electron dev entrypoint
+- `apps/ide/main.js` Electron main process (starts backend + frontend, then opens a window)
+- `package.json` npm workspaces root + scripts
+- `apps/ide/package.json` Electron dev entrypoint
 - `docs/` project docs (functions, troubleshooting, handoffs)
 
 ## Local Development
@@ -25,15 +26,15 @@ npm run dev
 
 This will:
 
-- start backend via `../Codemm-backend/run-codem-backend.sh`
-- start frontend via `../Codemm-frontend/npm run dev`
+- start backend from `apps/backend`
+- start frontend from `apps/frontend`
 - open `http://127.0.0.1:3000` inside Electron
 
 ## Making Changes
 
 - Desktop wrapper logic: edit `main.js`
-- Backend behavior/API/judge: edit files in `../Codemm-backend`
-- UI/UX: edit files in `../Codemm-frontend`
+- Backend behavior/API/judge: edit files in `apps/backend`
+- UI/UX: edit files in `apps/frontend`
 
 Keep in mind:
 
@@ -45,4 +46,3 @@ Keep in mind:
 - Keep `nodeIntegration: false` and `contextIsolation: true` in Electron.
 - Prefer explicit timeouts and clear error dialogs when booting dependencies.
 - Avoid hard-coding absolute paths; use environment overrides (`CODEMM_BACKEND_DIR`, `CODEMM_FRONTEND_DIR`) where needed.
-
