@@ -18,6 +18,7 @@ function sleep(ms) {
 
 function waitForHttpOk(url, { timeoutMs = 120_000, intervalMs = 500 } = {}) {
   const deadline = Date.now() + timeoutMs;
+  let lastLogAt = 0;
 
   async function once() {
     return new Promise((resolve) => {
@@ -37,6 +38,10 @@ function waitForHttpOk(url, { timeoutMs = 120_000, intervalMs = 500 } = {}) {
     while (Date.now() < deadline) {
       // Treat any HTTP response as "up" (even 404) because Next.js may respond with redirects/404s.
       if (await once()) return true;
+      if (Date.now() - lastLogAt > 5000) {
+        lastLogAt = Date.now();
+        console.log(`[ide] Waiting for ${url}...`);
+      }
       await sleep(intervalMs);
     }
     return false;
@@ -99,8 +104,12 @@ function wireLogs(name, proc) {
 
 async function ensureNodeModules({ dir, label, env }) {
   const nm = path.join(dir, "node_modules");
-  if (fs.existsSync(nm)) return true;
+  if (fs.existsSync(nm)) {
+    console.log(`[ide] ${label}: node_modules present, skipping npm install`);
+    return true;
+  }
 
+  console.log(`[ide] ${label}: installing npm dependencies...`);
   const child = spawn("npm", ["install"], {
     cwd: dir,
     env,
@@ -142,6 +151,7 @@ async function ensureJudgeImages({ dockerBin, backendDir, env }) {
 
   for (const { image, dockerfile } of images) {
     if (rebuild) {
+      console.log(`[ide] Rebuilding judge image: ${image}`);
       spawnSync(dockerBin, ["image", "rm", "-f", `${image}:latest`], { stdio: "ignore" });
     }
 
@@ -149,12 +159,16 @@ async function ensureJudgeImages({ dockerBin, backendDir, env }) {
       spawnSync(dockerBin, ["image", "inspect", `${image}:latest`], { stdio: "ignore" }).status ===
       0;
 
-    if (exists && !rebuild) continue;
+    if (exists && !rebuild) {
+      console.log(`[ide] Judge image found: ${image}`);
+      continue;
+    }
 
+    console.log(`[ide] Building judge image: ${image} (from ${dockerfile})...`);
     const code = await spawnAndWait(
       `docker:${image}`,
       dockerBin,
-      ["build", "-f", dockerfile, "-t", image, "."],
+      ["build", "--progress=plain", "-f", dockerfile, "-t", image, "."],
       { cwd: backendDir, env },
     );
     if (code !== 0) return false;
@@ -171,6 +185,10 @@ async function createWindowAndBoot() {
   const frontendDir =
     process.env.CODEMM_FRONTEND_DIR || path.join(repoRoot, "apps", "frontend");
 
+  console.log(`[ide] repoRoot=${repoRoot}`);
+  console.log(`[ide] backendDir=${backendDir}`);
+  console.log(`[ide] frontendDir=${frontendDir}`);
+
   const dockerBin = findDockerBinary();
   if (!dockerBin) {
     dialog.showErrorBox(
@@ -184,6 +202,7 @@ async function createWindowAndBoot() {
     app.quit();
     return;
   }
+  console.log(`[ide] dockerBin=${dockerBin}`);
 
   if (!ensureDockerRunning({ dockerBin })) {
     dialog.showErrorBox(
@@ -196,9 +215,12 @@ async function createWindowAndBoot() {
     app.quit();
     return;
   }
+  console.log("[ide] Docker is running");
 
   const backendUrl = `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`;
   const frontendUrl = `http://127.0.0.1:${DEFAULT_FRONTEND_PORT}`;
+  console.log(`[ide] backendUrl=${backendUrl}`);
+  console.log(`[ide] frontendUrl=${frontendUrl}`);
 
   const win = new BrowserWindow({
     width: 1320,
@@ -312,6 +334,7 @@ async function createWindowAndBoot() {
 
   // Ensure Docker judge images exist (Codemm compiles/runs in Docker).
   {
+    console.log("[ide] Ensuring judge Docker images...");
     const ok = await ensureJudgeImages({ dockerBin, backendDir, env: baseEnv });
     if (!ok) {
       dialog.showErrorBox(
@@ -324,6 +347,7 @@ async function createWindowAndBoot() {
   }
 
   // Start backend (workspace).
+  console.log("[ide] Starting backend (workspace codem-backend)...");
   backendProc = spawn("npm", ["--workspace", "codem-backend", "run", "dev"], {
     cwd: repoRoot,
     env: {
@@ -351,6 +375,7 @@ async function createWindowAndBoot() {
     }
   });
 
+  console.log(`[ide] Waiting for backend health: ${backendUrl}/health`);
   const backendReady = await waitForHttpOk(`${backendUrl}/health`, { timeoutMs: 180_000 });
   if (!backendReady) {
     dialog.showErrorBox(
@@ -361,8 +386,10 @@ async function createWindowAndBoot() {
     app.quit();
     return;
   }
+  console.log("[ide] Backend is ready");
 
   // Start frontend dev server (workspace).
+  console.log("[ide] Starting frontend (workspace codem-frontend)...");
   frontendProc = spawn("npm", ["--workspace", "codem-frontend", "run", "dev"], {
     cwd: repoRoot,
     env: {
@@ -390,6 +417,7 @@ async function createWindowAndBoot() {
     }
   });
 
+  console.log(`[ide] Waiting for frontend: ${frontendUrl}/`);
   const frontendReady = await waitForHttpOk(`${frontendUrl}/`, { timeoutMs: 180_000 });
   if (!frontendReady) {
     dialog.showErrorBox(
@@ -402,6 +430,7 @@ async function createWindowAndBoot() {
     return;
   }
 
+  console.log("[ide] Frontend is ready; loading UI...");
   await win.loadURL(frontendUrl);
 
   const cleanup = () => {
