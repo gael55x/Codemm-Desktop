@@ -1,0 +1,690 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
+
+type Problem = {
+  id: string;
+  title: string;
+  description: string;
+  language?: string;
+  difficulty?: string;
+  topic_tag?: string;
+};
+
+type Activity = {
+  id: string;
+  title: string;
+  prompt: string;
+  problems: Problem[];
+  createdAt: string;
+  status?: "DRAFT" | "PUBLISHED";
+  timeLimitSeconds?: number | null;
+  communityPublishedAt?: string | null;
+  communitySummary?: string | null;
+  communityTags?: string[];
+};
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
+
+function clampInt(n: number, min: number, max: number): number {
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && typeof err.message === "string" && err.message.trim()) return err.message;
+  if (typeof err === "string" && err.trim()) return err;
+  return fallback;
+}
+
+export default function ActivityReviewPage() {
+  const params = useParams<{ id: string }>();
+  const activityId = params.id;
+  const router = useRouter();
+
+  const [loading, setLoading] = useState(true);
+  const [activity, setActivity] = useState<Activity | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [title, setTitle] = useState("");
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState<string>("0");
+
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [communityPublishing, setCommunityPublishing] = useState(false);
+  const [editingProblemId, setEditingProblemId] = useState<string | null>(null);
+  const [editInstruction, setEditInstruction] = useState<string>("");
+  const [editing, setEditing] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const [communitySummary, setCommunitySummary] = useState<string>("");
+  const [communityTagsText, setCommunityTagsText] = useState<string>("");
+
+  const [tourOpen, setTourOpen] = useState(false);
+
+  const isDraft = (activity?.status ?? "PUBLISHED") === "DRAFT";
+  const isCommunityPublished = Boolean(activity?.communityPublishedAt);
+
+  const tourSteps: TourStep[] = [
+    {
+      id: "settings",
+      selector: '[data-tour="draft-settings"]',
+      title: "Edit the draft settings",
+      body: "Change the title and timer anytime before publishing.",
+    },
+    {
+      id: "save",
+      selector: '[data-tour="draft-save"]',
+      title: "Save your draft",
+      body: "Save after making edits so they’re persisted.",
+    },
+    {
+      id: "ai-edit",
+      selector: '[data-tour="draft-ai-edit"]',
+      title: "Edit a problem with AI",
+      body: "Use AI edit to regenerate that specific problem and update its test cases.",
+    },
+    {
+      id: "publish",
+      selector: '[data-tour="draft-publish"]',
+      title: "Publish when ready",
+      body: "Publishing makes the activity shareable. Draft activities stay private.",
+    },
+  ];
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isDraft) return;
+    const key = "codem-tutorial-draft-review-v1";
+    if (localStorage.getItem(key) === "1") return;
+    const t = window.setTimeout(() => setTourOpen(true), 600);
+    return () => window.clearTimeout(t);
+  }, [isDraft]);
+
+  const shareUrl = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    if (!activityId) return null;
+    return `${window.location.origin}/activity/${activityId}`;
+  }, [activityId]);
+
+  const tagsPreview = useMemo(() => {
+    const parts = communityTagsText
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => s.replace(/^#/, ""))
+      .filter(Boolean);
+
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const t of parts) {
+      const key = t.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+      if (out.length >= 10) break;
+    }
+    return out;
+  }, [communityTagsText]);
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const token = localStorage.getItem("codem-token");
+        if (!token) {
+          router.push("/auth/login");
+          return;
+        }
+
+        const res = await fetch(`${BACKEND_URL}/activities/${activityId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          throw new Error(data?.error || `Failed to load activity (${res.status})`);
+        }
+
+        const act = data?.activity as Activity | undefined;
+        if (!act) throw new Error("Failed to load activity.");
+
+        setActivity(act);
+        setTitle(act.title ?? "");
+        setCommunitySummary(typeof act.communitySummary === "string" ? act.communitySummary : "");
+        setCommunityTagsText(Array.isArray(act.communityTags) ? act.communityTags.join(", ") : "");
+        const mins =
+          typeof act.timeLimitSeconds === "number" && act.timeLimitSeconds > 0
+            ? String(Math.max(1, Math.round(act.timeLimitSeconds / 60)))
+            : "0";
+        setTimeLimitMinutes(mins);
+      } catch (e: unknown) {
+        setError(getErrorMessage(e, "Failed to load activity."));
+      } finally {
+        setLoading(false);
+      }
+    }
+    void load();
+  }, [activityId, router]);
+
+  async function saveDraft(): Promise<Activity | null> {
+    const token = localStorage.getItem("codem-token");
+    if (!token) {
+      router.push("/auth/login");
+      return null;
+    }
+
+    const mins = clampInt(Number.parseInt(timeLimitMinutes || "0", 10), 0, 8 * 60);
+    const timeLimitSeconds = mins > 0 ? mins * 60 : null;
+
+    setSaving(true);
+    setToast(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/activities/${activityId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: title.trim() || "Untitled activity",
+          timeLimitSeconds,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to save (${res.status})`);
+      }
+      const act = data?.activity as Activity | undefined;
+      if (act) setActivity(act);
+      setToast("Saved.");
+      return act ?? null;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function publish() {
+    setPublishing(true);
+    setToast(null);
+    try {
+      await saveDraft();
+
+      const token = localStorage.getItem("codem-token");
+      if (!token) {
+        router.push("/auth/login");
+        return;
+      }
+
+      const res = await fetch(`${BACKEND_URL}/activities/${activityId}/publish`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to publish (${res.status})`);
+      }
+
+      setActivity((prev) => (prev ? { ...prev, status: "PUBLISHED" } : prev));
+      setToast("Published. You can share the link now.");
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Failed to publish."));
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function publishToCommunity() {
+    const token = localStorage.getItem("codem-token");
+    if (!token) {
+      router.push("/auth/login");
+      return;
+    }
+
+    setCommunityPublishing(true);
+    setToast(null);
+    setError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/activities/${activityId}/community/publish`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          ...(communitySummary.trim() ? { summary: communitySummary.trim() } : {}),
+          ...(tagsPreview.length ? { tags: tagsPreview } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to publish to community (${res.status})`);
+      }
+      setActivity((prev) =>
+        prev
+          ? {
+              ...prev,
+              communityPublishedAt: typeof data?.communityPublishedAt === "string" ? data.communityPublishedAt : prev.communityPublishedAt,
+              communitySummary: communitySummary.trim() || prev.communitySummary || null,
+              communityTags: tagsPreview,
+            }
+          : prev,
+      );
+      setToast(isCommunityPublished ? "Community listing updated." : "Published to community.");
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Failed to publish to community."));
+    } finally {
+      setCommunityPublishing(false);
+    }
+  }
+
+  async function unpublishFromCommunity() {
+    const token = localStorage.getItem("codem-token");
+    if (!token) {
+      router.push("/auth/login");
+      return;
+    }
+
+    setCommunityPublishing(true);
+    setToast(null);
+    setError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/activities/${activityId}/community/unpublish`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to unpublish (${res.status})`);
+      }
+      setActivity((prev) => (prev ? { ...prev, communityPublishedAt: null } : prev));
+      setToast("Removed from community.");
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Failed to unpublish from community."));
+    } finally {
+      setCommunityPublishing(false);
+    }
+  }
+
+  async function copyShareLink() {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setToast("Link copied.");
+    } catch {
+      setToast("Could not copy link.");
+    }
+  }
+
+  async function editProblemWithAi(problemId: string) {
+    const token = localStorage.getItem("codem-token");
+    if (!token) {
+      router.push("/auth/login");
+      return;
+    }
+
+    const instruction = editInstruction.trim();
+    if (!instruction) {
+      setEditError("Tell the AI what to change.");
+      return;
+    }
+
+    setEditing(true);
+    setEditError(null);
+    setToast(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/activities/${activityId}/problems/${problemId}/ai-edit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ instruction }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to edit problem (${res.status})`);
+      }
+
+      const act = data?.activity as Activity | undefined;
+      if (act) {
+        setActivity(act);
+        setToast("Problem updated.");
+        setEditingProblemId(null);
+        setEditInstruction("");
+      }
+    } catch (e: unknown) {
+      setEditError(getErrorMessage(e, "Failed to edit problem."));
+    } finally {
+      setEditing(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-900">
+        <div className="rounded-lg bg-white px-4 py-3 text-sm shadow">Loading…</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-900">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow">
+          <div className="text-sm font-semibold text-slate-900">Couldn’t open this activity</div>
+          <div className="mt-1 text-sm text-slate-600">{error}</div>
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={() => router.push("/")}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Home
+            </button>
+            <button
+              onClick={() => router.push("/auth/login")}
+              className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            >
+              Log in
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!activity) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-900">
+        <div className="rounded-lg bg-white px-4 py-3 text-sm shadow">Activity not found.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white text-slate-900">
+      <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-6">
+        <OnboardingTour
+          open={tourOpen}
+          steps={tourSteps}
+          onClose={() => {
+            setTourOpen(false);
+            try {
+              localStorage.setItem("codem-tutorial-draft-review-v1", "1");
+            } catch {
+              // ignore
+            }
+          }}
+        />
+        <header className="mb-5 flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Activity Review</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight">{activity.title}</h1>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+                  isDraft ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                }`}
+              >
+                {isDraft ? "Draft" : "Published"}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              Preview and edit before publishing. Timer applies per problem.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => router.push("/")}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Home
+            </button>
+            <button
+              onClick={() => router.push(`/activity/${activityId}`)}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Open
+            </button>
+          </div>
+        </header>
+
+        <main className="grid gap-4 md:grid-cols-[1.2fr_1fr]">
+          <section
+            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+            data-tour="draft-settings"
+          >
+            <h2 className="text-sm font-semibold text-slate-900">Settings</h2>
+
+            <label className="mt-3 block text-xs font-medium text-slate-700">Title</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              disabled={!isDraft || saving || publishing}
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-50"
+              placeholder="Activity title"
+            />
+
+            <label className="mt-3 block text-xs font-medium text-slate-700">Timer per problem (minutes)</label>
+            <input
+              value={timeLimitMinutes}
+              onChange={(e) => setTimeLimitMinutes(e.target.value)}
+              disabled={!isDraft || saving || publishing}
+              inputMode="numeric"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-50"
+              placeholder="0"
+            />
+            <p className="mt-1 text-xs text-slate-500">Use 0 for no timer (stopwatch).</p>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => void saveDraft()}
+                disabled={!isDraft || saving || publishing}
+                data-tour="draft-save"
+                className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+              >
+                {saving ? "Saving…" : "Save draft"}
+              </button>
+              <button
+                onClick={() => void publish()}
+                disabled={!isDraft || saving || publishing}
+                data-tour="draft-publish"
+                className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60"
+              >
+                {publishing ? "Publishing…" : "Publish"}
+              </button>
+              {toast && <span className="text-sm text-slate-600">{toast}</span>}
+            </div>
+
+          {!isDraft && shareUrl && (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Share link</div>
+                <div className="mt-1 flex items-center gap-2">
+                  <code className="flex-1 overflow-x-auto rounded-lg bg-white px-2 py-1 text-xs text-slate-800">
+                    {shareUrl}
+                  </code>
+                  <button
+                    onClick={() => void copyShareLink()}
+                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">Community</div>
+                  <div className="mt-1 text-xs text-slate-600">
+                    Publish your activity to the community feed so other devs can discover it.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => router.push("/community")}
+                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  View feed
+                </button>
+              </div>
+
+              {isDraft ? (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                  Publish the activity first, then you can publish it to the community.
+                </div>
+              ) : (
+                <>
+                  <div className="mt-3 grid gap-3">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary (optional)</div>
+                      <input
+                        value={communitySummary}
+                        onChange={(e) => setCommunitySummary(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                        placeholder="What is this activity about?"
+                        maxLength={240}
+                      />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Tags (comma-separated, optional)
+                      </div>
+                      <input
+                        value={communityTagsText}
+                        onChange={(e) => setCommunityTagsText(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                        placeholder="e.g. sql, grouping, aggregation"
+                      />
+                      {tagsPreview.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {tagsPreview.map((t) => (
+                            <span key={t} className="rounded-full bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={communityPublishing}
+                      onClick={() => void publishToCommunity()}
+                      className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+                    >
+                      {communityPublishing ? "Saving…" : isCommunityPublished ? "Update community listing" : "Publish to community"}
+                    </button>
+                    {isCommunityPublished && (
+                      <button
+                        type="button"
+                        disabled={communityPublishing}
+                        onClick={() => void unpublishFromCommunity()}
+                        className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        Remove from community
+                      </button>
+                    )}
+                  </div>
+
+                  {isCommunityPublished && (
+                    <div className="mt-3 text-xs text-slate-500">
+                      Published to community:{" "}
+                      {typeof activity.communityPublishedAt === "string"
+                        ? new Date(activity.communityPublishedAt).toLocaleString()
+                        : "—"}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-900">Preview</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              {activity.problems.length} problems
+            </p>
+            <div className="mt-3 space-y-2">
+              {activity.problems.map((p) => (
+                <details key={p.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-900">
+                    {p.title}
+                    <span className="ml-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      {(p.language ?? "java").toUpperCase()}
+                    </span>
+                    {isDraft && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setEditError(null);
+                          setToast(null);
+                          setEditingProblemId((cur) => (cur === p.id ? null : p.id));
+                          setEditInstruction("");
+                        }}
+                        data-tour="draft-ai-edit"
+                        className="ml-3 rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        AI edit
+                      </button>
+                    )}
+                  </summary>
+                  <div className="mt-2 text-sm text-slate-700 whitespace-pre-line">{p.description}</div>
+
+                  {isDraft && editingProblemId === p.id && (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Edit with AI
+                      </div>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Describe what to change. The AI will regenerate the problem and its tests.
+                      </p>
+                      <textarea
+                        value={editInstruction}
+                        onChange={(e) => setEditInstruction(e.target.value)}
+                        rows={4}
+                        className="mt-2 w-full resize-none rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                        placeholder='Example: "Make it accept duplicates and add edge cases for empty input."'
+                      />
+                      {editError && <div className="mt-2 text-xs text-red-600">{editError}</div>}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={editing}
+                          onClick={() => void editProblemWithAi(p.id)}
+                          className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+                        >
+                          {editing ? "Updating…" : "Update problem"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={editing}
+                          onClick={() => {
+                            setEditingProblemId(null);
+                            setEditInstruction("");
+                            setEditError(null);
+                          }}
+                          className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </details>
+              ))}
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  );
+}
