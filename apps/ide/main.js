@@ -8,6 +8,10 @@ const path = require("path");
 const DEFAULT_BACKEND_PORT = Number.parseInt(process.env.CODEMM_BACKEND_PORT || "4000", 10);
 const DEFAULT_FRONTEND_PORT = Number.parseInt(process.env.CODEMM_FRONTEND_PORT || "3000", 10);
 
+// Keep a global reference so the window isn't garbage-collected on macOS.
+/** @type {import("electron").BrowserWindow | null} */
+let mainWindow = null;
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -206,6 +210,10 @@ async function createWindowAndBoot() {
       nodeIntegration: false,
       contextIsolation: true,
     },
+  });
+  mainWindow = win;
+  win.on("closed", () => {
+    mainWindow = null;
   });
 
   // Hard block popups; if the UI needs external links, we can explicitly open them with `shell.openExternal`.
@@ -407,9 +415,48 @@ async function createWindowAndBoot() {
   });
 }
 
-app.whenReady().then(createWindowAndBoot);
+process.on("uncaughtException", (err) => {
+  // Best-effort: surface fatal errors if Electron started from a GUI context.
+  try {
+    dialog.showErrorBox("Codemm-IDE Crashed", String(err?.stack || err?.message || err));
+  } catch {
+    // ignore
+  }
+  // eslint-disable-next-line no-console
+  console.error(err);
+});
+
+process.on("unhandledRejection", (err) => {
+  try {
+    dialog.showErrorBox("Codemm-IDE Error", String(err?.stack || err?.message || err));
+  } catch {
+    // ignore
+  }
+  // eslint-disable-next-line no-console
+  console.error(err);
+});
+
+app.whenReady().then(() => {
+  console.log("[ide] Electron ready. Booting backend + frontend...");
+  return createWindowAndBoot();
+});
 
 app.on("window-all-closed", () => {
   // On macOS, typical apps stay open without windows; for an IDE we quit.
   app.quit();
+});
+
+app.on("activate", () => {
+  // macOS: clicking the dock icon should bring a window back.
+  if (mainWindow) {
+    mainWindow.show();
+    return;
+  }
+  createWindowAndBoot().catch((err) => {
+    try {
+      dialog.showErrorBox("Failed To Launch", String(err?.stack || err?.message || err));
+    } catch {
+      // ignore
+    }
+  });
 });
