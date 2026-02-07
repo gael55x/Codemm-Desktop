@@ -23,11 +23,10 @@
 ## Secrets
 
 - Avoid storing provider API keys in the renderer.
-- Prefer backend-owned storage (already the model in Codemm).
-- Packaging follow-up: consider OS keychain integration (macOS Keychain) or backend encryption-only.
+- Current: Electron main stores keys locally using `safeStorage` and exposes only a minimal preload bridge.
+- Target: OS keychain integration (macOS Keychain) with per-workspace overrides.
 
 ## Docker Boundary
 
 - All compilation/execution/judging remains in Docker.
 - The IDE should never run submitted code directly via `child_process` outside Docker.
-

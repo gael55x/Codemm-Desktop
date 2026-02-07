@@ -44,7 +44,7 @@ type GenerationProgressState = {
 
 type LearningMode = "practice" | "guided";
 
-type SessionSummary = {
+type ThreadSummary = {
   id: string;
   state: string;
   learning_mode: LearningMode;
@@ -65,13 +65,12 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
-  const [user, setUser] = useState<any>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [sessionHistory, setSessionHistory] = useState<SessionSummary[]>([]);
+  const [threadHistory, setThreadHistory] = useState<ThreadSummary[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
 
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [threadId, setThreadId] = useState<string | null>(null);
   const [learningMode, setLearningMode] = useState<LearningMode>("practice");
   const [generationLocked, setGenerationLocked] = useState(false);
   const [specReady, setSpecReady] = useState(false);
@@ -134,7 +133,7 @@ export default function Home() {
     try {
       cleanupStreams();
       setLearningMode(mode);
-      setSessionId(null);
+      setThreadId(null);
       setSpecReady(false);
       setProgress(null);
       setProgressHint(null);
@@ -143,20 +142,16 @@ export default function Home() {
       setChatInput("");
       setHasInteracted(false);
 
-      const token = localStorage.getItem("codem-token");
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      const res = await fetch(`${BACKEND_URL}/sessions`, {
+      const res = await fetch(`${BACKEND_URL}/threads`, {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ learning_mode: mode }),
       });
       const data = await res.json();
 
-      if (typeof data?.sessionId === "string") {
-        setSessionId(data.sessionId);
-        localStorage.setItem("codem-last-session-id", data.sessionId);
+      if (typeof data?.threadId === "string") {
+        setThreadId(data.threadId);
+        localStorage.setItem("codemm-last-thread-id", data.threadId);
         localStorage.setItem("codem-last-learning-mode", mode);
       }
 
@@ -172,14 +167,14 @@ export default function Home() {
         ]);
       }
     } catch (e) {
-      console.error("Failed to create session:", e);
+      console.error("Failed to create thread:", e);
     }
   }
 
   async function loadSession(existingSessionId: string) {
     try {
       cleanupStreams();
-      setSessionId(null);
+      setThreadId(null);
       setSpecReady(false);
       setProgress(null);
       setProgressHint(null);
@@ -188,20 +183,16 @@ export default function Home() {
       setChatInput("");
       setHasInteracted(false);
 
-      const token = localStorage.getItem("codem-token");
-      const headers: Record<string, string> = {};
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      const res = await fetch(`${BACKEND_URL}/sessions/${existingSessionId}`, { headers });
+      const res = await fetch(`${BACKEND_URL}/threads/${existingSessionId}`);
       if (!res.ok) {
-        throw new Error(`Failed to load session (${res.status})`);
+        throw new Error(`Failed to load thread (${res.status})`);
       }
       const data = await res.json();
 
       const mode: LearningMode = data?.learning_mode === "guided" ? "guided" : "practice";
       setLearningMode(mode);
-      setSessionId(existingSessionId);
-      localStorage.setItem("codem-last-session-id", existingSessionId);
+      setThreadId(existingSessionId);
+      localStorage.setItem("codemm-last-thread-id", existingSessionId);
       localStorage.setItem("codem-last-learning-mode", mode);
 
       const state = String(data?.state ?? "");
@@ -221,7 +212,7 @@ export default function Home() {
         setHasInteracted(loaded.length > 0);
       }
     } catch (e) {
-      console.error("Failed to load session:", e);
+      console.error("Failed to load thread:", e);
       const storedMode = localStorage.getItem("codem-last-learning-mode");
       const fallbackMode: LearningMode = storedMode === "guided" ? "guided" : "practice";
       await startNewSession(fallbackMode);
@@ -229,33 +220,17 @@ export default function Home() {
   }
 
   async function fetchSessionHistory(limit: number = 30) {
-    const token = localStorage.getItem("codem-token");
-    if (!token) {
-      setSessionHistory([]);
-      return;
-    }
-
     setHistoryLoading(true);
     setHistoryError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/sessions?limit=${encodeURIComponent(String(limit))}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (res.status === 401 || res.status === 403) {
-        localStorage.removeItem("codem-token");
-        localStorage.removeItem("codem-user");
-        setUser(null);
-        setSessionHistory([]);
-        return;
-      }
+      const res = await fetch(`${BACKEND_URL}/threads?limit=${encodeURIComponent(String(limit))}`);
 
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || "Failed to load chat history");
       }
 
-      setSessionHistory(Array.isArray(data?.sessions) ? data.sessions : []);
+      setThreadHistory(Array.isArray(data?.threads) ? data.threads : []);
     } catch (e: any) {
       setHistoryError(e?.message ?? "Failed to load chat history");
     } finally {
@@ -269,20 +244,13 @@ export default function Home() {
       setDarkMode(true);
     }
 
-    // Check if user is logged in
-    const token = localStorage.getItem("codem-token");
-    const storedUser = localStorage.getItem("codem-user");
-    if (token && storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-
     const storedMode = localStorage.getItem("codem-last-learning-mode");
     const initialMode: LearningMode = storedMode === "guided" ? "guided" : "practice";
     setLearningMode(initialMode);
 
-    const storedSessionId = localStorage.getItem("codem-last-session-id");
-    if (storedSessionId) {
-      void loadSession(storedSessionId);
+    const storedThreadId = localStorage.getItem("codemm-last-thread-id");
+    if (storedThreadId) {
+      void loadSession(storedThreadId);
     } else {
       void startNewSession(initialMode);
     }
@@ -339,7 +307,7 @@ export default function Home() {
   }
 
   async function handleChatSend() {
-    if (!sessionId) return;
+    if (!threadId) return;
 
     const rawInput = chatInput.trim();
     if (!rawInput) return;
@@ -354,13 +322,9 @@ export default function Home() {
     setChatLoading(true);
 
     try {
-      const token = localStorage.getItem("codem-token");
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      const res = await fetch(`${BACKEND_URL}/sessions/${sessionId}/messages`, {
+      const res = await fetch(`${BACKEND_URL}/threads/${threadId}/messages`, {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: normalized.value }),
       });
       const data = await res.json();
@@ -406,13 +370,7 @@ export default function Home() {
   }
 
   async function handleGenerate() {
-    const token = localStorage.getItem("codem-token");
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
-    if (!sessionId || !specReady) {
+    if (!threadId || !specReady) {
       return;
     }
 
@@ -437,7 +395,7 @@ export default function Home() {
         // ignore
       }
 
-      const es = new EventSource(`${BACKEND_URL}/sessions/${sessionId}/generate/stream`);
+      const es = new EventSource(`${BACKEND_URL}/threads/${threadId}/generate/stream`);
       progressRef.current = es;
 
       const hintTimer = window.setTimeout(() => {
@@ -668,12 +626,9 @@ export default function Home() {
         }
       };
 
-      const res = await fetch(`${BACKEND_URL}/sessions/${sessionId}/generate`, {
+      const res = await fetch(`${BACKEND_URL}/threads/${threadId}/generate`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
       });
 
       const data = await res.json();
@@ -717,14 +672,6 @@ export default function Home() {
 
   const isBusy = chatLoading || loading;
   const isPromptExpanded = hasInteracted || chatInput.trim().length > 0;
-  const displayName =
-    (typeof user?.displayName === "string" && user.displayName.trim()
-      ? user.displayName
-      : typeof user?.display_name === "string" && user.display_name.trim()
-        ? user.display_name
-        : typeof user?.username === "string" && user.username.trim()
-          ? user.username
-          : "Gaille") as string;
 
   return (
     <div
@@ -807,7 +754,7 @@ export default function Home() {
                       if (generationLocked) return;
                       if ((hasInteracted || specReady) && mode !== learningMode) {
                         const ok = window.confirm(
-                          "Switch learning mode? This will start a new session and reset the current chat/spec.",
+                          "Switch learning mode? This will start a new thread and reset the current chat/spec.",
                         );
                         if (!ok) return;
                       }
@@ -827,36 +774,34 @@ export default function Home() {
                 );
               })}
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !historyOpen;
+                setHistoryOpen(next);
+                if (next) void fetchSessionHistory();
+              }}
+              className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${
+                darkMode
+                  ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+              aria-haspopup="dialog"
+              aria-expanded={historyOpen}
+            >
+              <HistoryIcon className="h-4 w-4" />
+              History
+            </button>
             <Link
-              href="/community"
+              href="/settings/llm"
               className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                 darkMode
                   ? "border-slate-800 bg-slate-900/60 text-slate-200 hover:bg-slate-800"
                   : "border-slate-200 bg-white/80 text-slate-700 hover:bg-slate-100"
               }`}
             >
-              Community
+              API Key
             </Link>
-            {user && (
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !historyOpen;
-                  setHistoryOpen(next);
-                  if (next) void fetchSessionHistory();
-                }}
-                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${
-                  darkMode
-                    ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                    : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-                aria-haspopup="dialog"
-                aria-expanded={historyOpen}
-              >
-                <HistoryIcon className="h-4 w-4" />
-                History
-              </button>
-            )}
             <button
               onClick={toggleDarkMode}
               className={`flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-base transition ${
@@ -866,25 +811,6 @@ export default function Home() {
             >
               {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </button>
-            {user ? (
-              <button
-                onClick={() => router.push("/profile")}
-                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                  darkMode ? "bg-transparent text-slate-200 hover:text-white" : "bg-transparent text-slate-700 hover:text-slate-900"
-                }`}
-              >
-                {displayName}
-              </button>
-            ) : (
-              <button
-                onClick={() => router.push("/auth/login")}
-                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                  darkMode ? "bg-transparent text-slate-200 hover:text-white" : "bg-transparent text-slate-700 hover:text-slate-900"
-                }`}
-              >
-                Log in
-              </button>
-            )}
           </div>
         </header>
 
@@ -1173,7 +1099,7 @@ export default function Home() {
           </section>
         </main>
 
-        {user && historyOpen && (
+        {historyOpen && (
           <div className="fixed inset-0 z-50">
             <div
               className="absolute inset-0 bg-black/50"
@@ -1218,9 +1144,9 @@ export default function Home() {
                   New chat
                 </button>
 
-                {historyLoading && (
-                  <div className={`mt-4 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Loading…</div>
-                )}
+                    {historyLoading && (
+                      <div className={`mt-4 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Loading…</div>
+                    )}
                 {historyError && (
                   <div
                     className={`mt-4 rounded-2xl border px-4 py-3 text-xs ${
@@ -1233,22 +1159,22 @@ export default function Home() {
 
                 {!historyLoading && !historyError && (
                   <div className="mt-4 space-y-2">
-                    {sessionHistory.length === 0 && (
+                    {threadHistory.length === 0 && (
                       <div
                         className={`rounded-2xl border px-4 py-4 text-xs ${
                           darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-600"
                         }`}
                       >
-                        No saved chats yet. Start a chat while logged in and it will show up here.
+                        No saved threads yet. Start a chat and it will show up here.
                       </div>
                     )}
-                    {sessionHistory.map((s) => {
+                    {threadHistory.map((s) => {
                       const when = s.last_message_at || s.updated_at;
                       const whenText = when ? new Date(when).toLocaleDateString() : "";
                       const preview =
                         (typeof s.last_message === "string" && s.last_message.trim()
                           ? s.last_message
-                          : `Session ${s.id.slice(0, 8)}…`) as string;
+                          : `Thread ${s.id.slice(0, 8)}…`) as string;
                       return (
                         <button
                           key={s.id}

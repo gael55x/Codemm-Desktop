@@ -529,15 +529,7 @@ export default function ActivityPage() {
     async function load() {
       try {
         setLoadError(null);
-        const token = localStorage.getItem("codem-token");
-        const headers: Record<string, string> = {};
-        if (token) {
-          headers["Authorization"] = `Bearer ${token}`;
-        }
-
-        const res = await fetch(`${BACKEND_URL}/activities/${activityId}`, {
-          headers,
-        });
+        const res = await fetch(`${BACKEND_URL}/activities/${activityId}`);
 
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -733,11 +725,7 @@ export default function ActivityPage() {
     if (!selectedProblem) return;
     setSubmitting(true);
     try {
-      const token = localStorage.getItem("codem-token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
 
       const testSuite = selectedProblem.test_suite || selectedProblem.testSuite || "";
       const filesForTests = Object.fromEntries(
@@ -887,12 +875,6 @@ export default function ActivityPage() {
               className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Home
-            </button>
-            <button
-              onClick={() => router.push("/auth/login")}
-              className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-            >
-              Log in
             </button>
           </div>
         </div>

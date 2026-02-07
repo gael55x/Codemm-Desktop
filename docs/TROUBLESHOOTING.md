@@ -74,18 +74,30 @@ Fix:
   - `http://127.0.0.1:4000/health`
   - `http://127.0.0.1:3000/`
 
+## No Workspace Selected
+
+Symptom:
+
+- Dialog shows “No Workspace Selected” on launch.
+
+Fix:
+
+- Relaunch and select a workspace folder when prompted.
+- Or set `CODEMM_WORKSPACE_DIR` to a folder path before launching.
+
 ## Backend SQLite Error: SQLITE_CANTOPEN (“unable to open database file”)
 
 Symptom:
 
-- Backend logs show `SqliteError: unable to open database file` (often during `/auth/login` or `/auth/register`).
+- Backend logs show `SqliteError: unable to open database file`.
 
 Fix:
 
 - Ensure the SQLite DB lives in a writable location.
-  - In the IDE, the backend is launched with `CODEMM_DB_PATH` set to the Electron `userData` directory.
-  - If you override it, prefer an absolute path (or use `~`).
-- If you previously used the repo-local DB (`apps/backend/data/codem.db`), the IDE will copy it once into `<userData>/codem.db` (only when `CODEMM_DB_PATH` is not explicitly set and the new DB does not exist yet).
+  - By default, Codemm-IDE uses a per-workspace DB at `<workspaceDataDir>/codemm.db`.
+  - Preferred workspace data dir: `<workspace>/.codemm/`.
+  - Fallback workspace data dir: Electron `userData/Workspaces/<hash>/`.
+  - If you override `CODEMM_DB_PATH`, prefer an absolute path (or `~`).
 
 ## Electron/Chromium Cache Error: “Failed to write the temporary index file”
 

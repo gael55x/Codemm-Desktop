@@ -3,7 +3,9 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
-  --font-geist-sans: var(--font-plus-jakarta), "Plus Jakarta Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-sans-system: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji",
+    "Segoe UI Emoji";
+  --font-geist-sans: var(--font-sans-system);
   --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
@@ -24,10 +26,10 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-plus-jakarta), "Plus Jakarta Sans", Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans);
 }
 
 .logo-font {
-  font-family: var(--font-plus-jakarta), "Plus Jakarta Sans", "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-geist-sans);
   letter-spacing: -0.015em;
 }

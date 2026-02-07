@@ -1,10 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useThemeMode } from "@/lib/useThemeMode";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 
 type LlmProvider = "openai" | "anthropic" | "gemini";
 
@@ -15,7 +12,6 @@ type LlmSettingsResponse = {
 };
 
 export default function LlmSettingsPage() {
-  const router = useRouter();
   const { darkMode } = useThemeMode();
 
   const [loading, setLoading] = useState(true);
@@ -26,33 +22,23 @@ export default function LlmSettingsPage() {
   const [provider, setProvider] = useState<LlmProvider>("openai");
   const [apiKey, setApiKey] = useState("");
 
-  const token = useMemo(() => (typeof window !== "undefined" ? localStorage.getItem("codem-token") : null), []);
-
   useEffect(() => {
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
     async function load() {
       try {
-        const res = await fetch(`${BACKEND_URL}/profile/llm`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (res.status === 401 || res.status === 403) {
-          localStorage.removeItem("codem-token");
-          localStorage.removeItem("codem-user");
-          router.push("/auth/login");
+        const api = (window as any)?.codemm?.secrets;
+        if (!api || typeof api.getLlmSettings !== "function") {
+          setStatus({
+            configured: false,
+            provider: null,
+            updatedAt: null,
+          });
+          setError("IDE bridge unavailable. Launch this screen inside Codemm-IDE.");
           return;
         }
 
-        const data = (await res.json()) as LlmSettingsResponse;
-        if (!res.ok) {
-          throw new Error((data as any)?.error || "Failed to load LLM settings");
-        }
-
+        const data = (await api.getLlmSettings()) as LlmSettingsResponse;
         setStatus(data);
+
         const p = String(data.provider || "").toLowerCase();
         if (p === "openai" || p === "anthropic" || p === "gemini") {
           setProvider(p);
@@ -65,32 +51,21 @@ export default function LlmSettingsPage() {
     }
 
     load();
-  }, [router, token]);
+  }, []);
 
   async function save() {
-    if (!token) return;
+    const api = (window as any)?.codemm?.secrets;
+    if (!api || typeof api.setLlmSettings !== "function") {
+      setError("IDE bridge unavailable. Launch this screen inside Codemm-IDE.");
+      return;
+    }
     setError(null);
     setSaving(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/profile/llm`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ provider, apiKey }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.detail || data?.error || "Failed to save LLM settings");
-      }
+      await api.setLlmSettings({ provider, apiKey });
       setApiKey("");
-
-      const refreshed = await fetch(`${BACKEND_URL}/profile/llm`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const refreshedData = await refreshed.json();
-      if (refreshed.ok) setStatus(refreshedData);
+      const refreshed = (await api.getLlmSettings()) as LlmSettingsResponse;
+      setStatus(refreshed);
     } catch (e: any) {
       setError(e?.message || "Failed to save LLM settings");
     } finally {
@@ -99,18 +74,15 @@ export default function LlmSettingsPage() {
   }
 
   async function clearKey() {
-    if (!token) return;
+    const api = (window as any)?.codemm?.secrets;
+    if (!api || typeof api.clearLlmSettings !== "function") {
+      setError("IDE bridge unavailable. Launch this screen inside Codemm-IDE.");
+      return;
+    }
     setError(null);
     setSaving(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/profile/llm`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to clear LLM settings");
-      }
+      await api.clearLlmSettings();
       setApiKey("");
       setStatus({ configured: false, provider: null, updatedAt: null });
     } catch (e: any) {
@@ -127,16 +99,16 @@ export default function LlmSettingsPage() {
           <div>
             <h1 className="text-2xl font-semibold">LLM API Key</h1>
             <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-              Store your own provider API key for generation. Keys are stored encrypted on the backend and are never shown back in the UI.
+              Store your own provider API key for generation. Keys are stored locally and are never shown back in the UI.
             </p>
           </div>
           <button
             className={`rounded-lg px-3 py-2 text-sm font-medium ${
               darkMode ? "bg-slate-800 hover:bg-slate-700" : "bg-slate-100 hover:bg-slate-200"
             }`}
-            onClick={() => router.push("/profile")}
+            onClick={() => history.back()}
           >
-            Back to profile
+            Back
           </button>
         </div>
 
@@ -167,7 +139,7 @@ export default function LlmSettingsPage() {
                     <option value="gemini">Gemini</option>
                   </select>
                   <p className={`mt-2 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                    Your key overrides the server default for your account.
+                    This key is stored locally and used for generation.
                   </p>
                 </div>
 

@@ -27,7 +27,6 @@ import {
   type CommitmentStore,
 } from "../agent/commitments";
 import { DEFAULT_LEARNING_MODE, LearningModeSchema, type LearningMode } from "../contracts/learningMode";
-import { getLearnerProfile } from "./learnerProfileService";
 import { buildGuidedPedagogyPolicy } from "../planner/pedagogy";
 import { logConversationMessage } from "../utils/devLogs";
 import { runDialogueTurn } from "./dialogueService";
@@ -271,7 +270,6 @@ function transitionOrThrow(from: SessionState, to: SessionState) {
 }
 
 export function createSession(
-  userId?: number | null,
   learningMode?: LearningMode
 ): { sessionId: string; state: SessionState; learning_mode: LearningMode } {
   const id = crypto.randomUUID();
@@ -282,7 +280,7 @@ export function createSession(
   const initialSpec = fixed.length > 0 ? applyJsonPatch({} as any, fixed) : {};
 
   // Contract allows null or {} — DB column is NOT NULL, so we store {}.
-  sessionDb.create(id, state, learning_mode, JSON.stringify(initialSpec), userId ?? null);
+  sessionDb.create(id, state, learning_mode, JSON.stringify(initialSpec));
   sessionCollectorDb.upsert(id, null, []);
 
   return { sessionId: id, state, learning_mode };
@@ -656,8 +654,7 @@ export type GenerateFromSessionResponse = {
  * - Set last_error
  */
 export async function generateFromSession(
-  sessionId: string,
-  userId: number
+  sessionId: string
 ): Promise<GenerateFromSessionResponse> {
   return withTraceContext({ sessionId }, async () => {
     const s = requireSession(sessionId);
@@ -748,10 +745,7 @@ export async function generateFromSession(
     let appliedFallbackReason: string | null = null;
 
     // Derive initial ProblemPlan (always from current spec)
-    const pedagogyPolicy =
-      learning_mode === "guided"
-        ? buildGuidedPedagogyPolicy({ spec, learnerProfile: getLearnerProfile({ userId, language: spec.language }) })
-        : undefined;
+    const pedagogyPolicy = learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec, learnerProfile: null }) : undefined;
     let plan = deriveProblemPlan(spec, pedagogyPolicy);
     sessionDb.setPlanJson(sessionId, JSON.stringify(plan));
     publishGenerationProgress(sessionId, {
@@ -876,7 +870,7 @@ export async function generateFromSession(
     const activityId = crypto.randomUUID();
     const activityTitle = `Activity (${spec.problem_count} problems)`;
 
-    activityDb.create(activityId, userId, activityTitle, JSON.stringify(problems), undefined, {
+    activityDb.create(activityId, activityTitle, JSON.stringify(problems), undefined, {
       status: "DRAFT",
       timeLimitSeconds: null,
     });

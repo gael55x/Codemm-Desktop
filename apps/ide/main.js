@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
-const { app, BrowserWindow, dialog, shell } = require("electron");
+const { app, BrowserWindow, dialog, shell, ipcMain, safeStorage } = require("electron");
 const { spawn, spawnSync } = require("child_process");
+const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const os = require("os");
@@ -12,6 +13,8 @@ const DEFAULT_FRONTEND_PORT = Number.parseInt(process.env.CODEMM_FRONTEND_PORT |
 // Keep a global reference so the window isn't garbage-collected on macOS.
 /** @type {import("electron").BrowserWindow | null} */
 let mainWindow = null;
+let ipcWired = false;
+let currentWorkspace = null; // { workspaceDir, workspaceDataDir, backendDbPath, userDataDir }
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -46,6 +49,118 @@ function configureElectronStoragePaths() {
   app.setPath("logs", logsDir);
 
   return { userDataDir, cacheDir, logsDir };
+}
+
+function readJsonFile(filePath, fallback) {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonFile(filePath, data) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+function tryMakeDirWritable(dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, `.codemm-write-probe-${Date.now()}.txt`);
+    fs.writeFileSync(probe, "ok", "utf8");
+    fs.unlinkSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hashWorkspaceDir(workspaceDir) {
+  const normalized = path.resolve(workspaceDir);
+  return crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+}
+
+async function resolveWorkspace({ userDataDir }) {
+  const prefsPath = path.join(userDataDir, "prefs.json");
+  const prefs = readJsonFile(prefsPath, { v: 1, lastWorkspaceDir: null });
+
+  const explicit = typeof process.env.CODEMM_WORKSPACE_DIR === "string" ? process.env.CODEMM_WORKSPACE_DIR.trim() : "";
+  if (explicit) {
+    const dir = path.resolve(explicit);
+    writeJsonFile(prefsPath, { ...prefs, lastWorkspaceDir: dir });
+    return { prefsPath, workspaceDir: dir };
+  }
+
+  if (prefs && typeof prefs.lastWorkspaceDir === "string" && prefs.lastWorkspaceDir.trim()) {
+    const dir = path.resolve(prefs.lastWorkspaceDir);
+    if (fs.existsSync(dir)) return { prefsPath, workspaceDir: dir };
+  }
+
+  const picked = await dialog.showOpenDialog({
+    title: "Choose a workspace folder",
+    properties: ["openDirectory", "createDirectory"],
+    message: "Codemm stores threads and runs per workspace.",
+  });
+  if (picked.canceled || !picked.filePaths?.[0]) {
+    return { prefsPath, workspaceDir: null };
+  }
+
+  const dir = path.resolve(picked.filePaths[0]);
+  writeJsonFile(prefsPath, { ...prefs, lastWorkspaceDir: dir });
+  return { prefsPath, workspaceDir: dir };
+}
+
+function resolveWorkspaceDataDir({ userDataDir, workspaceDir }) {
+  const local = path.join(workspaceDir, ".codemm");
+  if (tryMakeDirWritable(local)) return local;
+
+  const fallback = path.join(userDataDir, "Workspaces", hashWorkspaceDir(workspaceDir));
+  fs.mkdirSync(fallback, { recursive: true });
+  return fallback;
+}
+
+function resolveSecretsStorePath({ userDataDir }) {
+  return path.join(userDataDir, "secrets.json");
+}
+
+function loadSecrets({ userDataDir }) {
+  const secretsPath = resolveSecretsStorePath({ userDataDir });
+  const data = readJsonFile(secretsPath, { v: 1, llm: null });
+  if (!data || data.v !== 1) return { secretsPath, llm: null };
+  const llm = data.llm;
+  if (!llm || typeof llm !== "object") return { secretsPath, llm: null };
+
+  const provider = typeof llm.provider === "string" ? llm.provider : null;
+  const apiKeyEncB64 = typeof llm.apiKeyEncB64 === "string" ? llm.apiKeyEncB64 : null;
+  const updatedAt = typeof llm.updatedAt === "string" ? llm.updatedAt : null;
+  if (!provider || !apiKeyEncB64) return { secretsPath, llm: null };
+
+  try {
+    const buf = Buffer.from(apiKeyEncB64, "base64");
+    const apiKey = safeStorage.decryptString(buf);
+    return { secretsPath, llm: { provider, apiKey, updatedAt } };
+  } catch {
+    return { secretsPath, llm: null };
+  }
+}
+
+function saveSecrets({ userDataDir, provider, apiKey }) {
+  const secretsPath = resolveSecretsStorePath({ userDataDir });
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error("Electron safeStorage encryption is not available on this system.");
+  }
+  const apiKeyEncB64 = safeStorage.encryptString(apiKey).toString("base64");
+  const updatedAt = new Date().toISOString();
+  writeJsonFile(secretsPath, { v: 1, llm: { provider, apiKeyEncB64, updatedAt } });
+  return { secretsPath, updatedAt };
+}
+
+function clearSecrets({ userDataDir }) {
+  const secretsPath = resolveSecretsStorePath({ userDataDir });
+  writeJsonFile(secretsPath, { v: 1, llm: null });
+  return { secretsPath };
 }
 
 function waitForHttpOk(url, { timeoutMs = 120_000, intervalMs = 500 } = {}) {
@@ -299,6 +414,83 @@ async function createWindowAndBoot() {
   }
   console.log("[ide] Docker is running");
 
+  const workspaceResolution = await resolveWorkspace({ userDataDir: storage.userDataDir });
+  if (!workspaceResolution.workspaceDir) {
+    dialog.showErrorBox("No Workspace Selected", "Codemm-IDE needs a workspace folder to store threads and runs.");
+    app.quit();
+    return;
+  }
+
+  const workspaceDir = workspaceResolution.workspaceDir;
+  const workspaceDataDir = resolveWorkspaceDataDir({ userDataDir: storage.userDataDir, workspaceDir });
+  const backendDbPath = path.join(workspaceDataDir, "codemm.db");
+  currentWorkspace = { workspaceDir, workspaceDataDir, backendDbPath, userDataDir: storage.userDataDir };
+
+  console.log(`[ide] workspaceDir=${workspaceDir}`);
+  console.log(`[ide] workspaceDataDir=${workspaceDataDir}`);
+  console.log(`[ide] backendDbPath=${backendDbPath}`);
+
+  if (!ipcWired) {
+    ipcWired = true;
+
+    ipcMain.handle("codemm:workspace:get", () => {
+      if (!currentWorkspace) return null;
+      return { workspaceDir: currentWorkspace.workspaceDir, workspaceDataDir: currentWorkspace.workspaceDataDir };
+    });
+
+    ipcMain.handle("codemm:workspace:choose", async () => {
+      const r = await resolveWorkspace({ userDataDir: storage.userDataDir });
+      if (!r.workspaceDir) return { ok: false, error: "Workspace selection canceled." };
+      const nextWorkspaceDir = r.workspaceDir;
+      const nextWorkspaceDataDir = resolveWorkspaceDataDir({ userDataDir: storage.userDataDir, workspaceDir: nextWorkspaceDir });
+      const nextBackendDbPath = path.join(nextWorkspaceDataDir, "codemm.db");
+      currentWorkspace = { workspaceDir: nextWorkspaceDir, workspaceDataDir: nextWorkspaceDataDir, backendDbPath: nextBackendDbPath, userDataDir: storage.userDataDir };
+      dialog.showMessageBox({
+        type: "info",
+        message: "Workspace changed",
+        detail: "Restart Codemm-IDE to apply the new workspace.",
+      }).catch(() => {});
+      return { ok: true, workspaceDir: nextWorkspaceDir, workspaceDataDir: nextWorkspaceDataDir };
+    });
+
+    ipcMain.handle("codemm:secrets:getLlmSettings", () => {
+      const { llm } = loadSecrets({ userDataDir: storage.userDataDir });
+      return {
+        configured: Boolean(llm && llm.apiKey),
+        provider: llm ? llm.provider : null,
+        updatedAt: llm ? llm.updatedAt ?? null : null,
+      };
+    });
+
+    ipcMain.handle("codemm:secrets:setLlmSettings", async (_evt, args) => {
+      const provider = args && typeof args.provider === "string" ? args.provider.trim().toLowerCase() : "";
+      const apiKey = args && typeof args.apiKey === "string" ? args.apiKey.trim() : "";
+      if (!(provider === "openai" || provider === "anthropic" || provider === "gemini")) {
+        throw new Error("Invalid provider.");
+      }
+      if (!apiKey || apiKey.length < 10) {
+        throw new Error("API key is required.");
+      }
+      const { updatedAt } = saveSecrets({ userDataDir: storage.userDataDir, provider, apiKey });
+      dialog.showMessageBox({
+        type: "info",
+        message: "API key saved",
+        detail: "Restart Codemm-IDE to apply changes to the local engine.",
+      }).catch(() => {});
+      return { ok: true, updatedAt };
+    });
+
+    ipcMain.handle("codemm:secrets:clearLlmSettings", async () => {
+      clearSecrets({ userDataDir: storage.userDataDir });
+      dialog.showMessageBox({
+        type: "info",
+        message: "API key removed",
+        detail: "Restart Codemm-IDE to apply changes to the local engine.",
+      }).catch(() => {});
+      return { ok: true };
+    });
+  }
+
   const backendUrl = `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`;
   const frontendUrl = `http://127.0.0.1:${DEFAULT_FRONTEND_PORT}`;
   console.log(`[ide] backendUrl=${backendUrl}`);
@@ -310,7 +502,7 @@ async function createWindowAndBoot() {
     show: true,
     backgroundColor: "#0b1220",
     webPreferences: {
-      // Keep this strict. If we later need IPC, add a preload script.
+      preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
       contextIsolation: true,
     },
@@ -401,6 +593,21 @@ async function createWindowAndBoot() {
     baseEnv.PATH = baseEnv.PATH ? `${dockerDir}:${baseEnv.PATH}` : dockerDir;
   }
 
+  // Load locally stored LLM key (if configured) and inject it into the local engine process.
+  const secrets = loadSecrets({ userDataDir: storage.userDataDir }).llm;
+  if (secrets && secrets.apiKey) {
+    if (secrets.provider === "openai") {
+      baseEnv.CODEX_PROVIDER = "openai";
+      baseEnv.CODEX_API_KEY = secrets.apiKey;
+    } else if (secrets.provider === "anthropic") {
+      baseEnv.CODEX_PROVIDER = "anthropic";
+      baseEnv.ANTHROPIC_API_KEY = secrets.apiKey;
+    } else if (secrets.provider === "gemini") {
+      baseEnv.CODEX_PROVIDER = "gemini";
+      baseEnv.GEMINI_API_KEY = secrets.apiKey;
+    }
+  }
+
   // Ensure monorepo dependencies exist (npm workspaces).
   {
     const ok = await ensureNodeModules({ dir: repoRoot, label: "repo", env: baseEnv });
@@ -430,27 +637,10 @@ async function createWindowAndBoot() {
 
   // Start backend (workspace).
   console.log("[ide] Starting backend (workspace codem-backend)...");
-  const usingExplicitDbPath = typeof baseEnv.CODEMM_DB_PATH === "string" && baseEnv.CODEMM_DB_PATH.trim();
   const backendDbPath =
     typeof baseEnv.CODEMM_DB_PATH === "string" && baseEnv.CODEMM_DB_PATH.trim()
       ? baseEnv.CODEMM_DB_PATH.trim()
-      : path.join(storage.userDataDir, "codem.db");
-
-  // If this is the first run with the new default (userData DB), copy the old repo-local dev DB once.
-  // This helps avoid "lost data" surprises when developers already have users/sessions stored locally.
-  if (!usingExplicitDbPath) {
-    const legacyDbPath = path.join(backendDir, "data", "codem.db");
-    if (!fs.existsSync(backendDbPath) && fs.existsSync(legacyDbPath)) {
-      try {
-        fs.mkdirSync(path.dirname(backendDbPath), { recursive: true });
-        fs.copyFileSync(legacyDbPath, backendDbPath);
-        console.log(`[ide] Migrated legacy DB: ${legacyDbPath} -> ${backendDbPath}`);
-      } catch (err) {
-        console.warn(`[ide] Failed to migrate legacy DB: ${legacyDbPath} -> ${backendDbPath}`, err);
-      }
-    }
-  }
-  console.log(`[ide] backendDbPath=${backendDbPath}`);
+      : currentWorkspace.backendDbPath;
 
   backendProc = spawn("npm", ["--workspace", "codem-backend", "run", "dev"], {
     cwd: repoRoot,
@@ -460,6 +650,7 @@ async function createWindowAndBoot() {
       // Avoid a noisy welcome prompt in packaging contexts.
       CODEMM_HTTP_LOG: baseEnv.CODEMM_HTTP_LOG || "0",
       CODEMM_DB_PATH: backendDbPath,
+      CODEMM_WORKSPACE_DIR: currentWorkspace.workspaceDir,
     },
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],

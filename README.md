@@ -7,6 +7,8 @@ Desktop wrapper for Codemm that starts (locally):
 
 Then it opens the frontend in an Electron window so you don't have to run backend + frontend manually.
 
+Codemm-IDE is local-only: there are no accounts, no login, and no community features.
+
 ## Requirements
 
 - macOS
@@ -21,6 +23,8 @@ From `Codemm-IDE/`:
 npm install
 npm run dev
 ```
+
+On first launch, the app prompts you to select a workspace folder. Configure your LLM API key via the **API Key** screen in the UI.
 
 ## Monorepo Layout
 

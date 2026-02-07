@@ -1,21 +1,25 @@
 import { Router } from "express";
+import crypto from "crypto";
 import {
   createSession,
   getSession,
   processSessionMessage,
   generateFromSession,
 } from "../services/sessionService";
-import { authenticateToken, optionalAuth, type AuthRequest } from "../auth";
 import { isTraceEnabled } from "../utils/trace";
 import { subscribeTrace } from "../utils/traceBus";
 import { getGenerationProgressBuffer, subscribeGenerationProgress } from "../generation/progressBus";
 import type { GenerationProgressEvent } from "../contracts/generationProgress";
 import { LearningModeSchema } from "../contracts/learningMode";
-import crypto from "crypto";
 import { sessionDb, sessionMessageDb } from "../database";
 import { logConversationMessage } from "../utils/devLogs";
 
-export const sessionsRouter = Router();
+export const threadsRouter = Router();
+
+// NOTE: This router is the IDE-first replacement for SaaS-style "sessions".
+// Transitional compatibility:
+// - server.ts also mounts this router at `/sessions` temporarily
+// - client code should prefer `/threads`
 
 function sanitizeTracePayload(payload: Record<string, unknown>): Record<string, unknown> {
   const drop = new Set([
@@ -40,54 +44,51 @@ function sanitizeTracePayload(payload: Record<string, unknown>): Record<string, 
   return safe;
 }
 
-sessionsRouter.post("/", optionalAuth, (req: AuthRequest, res) => {
+threadsRouter.post("/", (req, res) => {
   try {
     const parsed = LearningModeSchema.optional().safeParse(req.body?.learning_mode);
     const learningMode = parsed.success ? parsed.data : undefined;
-    const userId = req.user?.id ?? null;
-    const { sessionId, state, learning_mode } = createSession(userId, learningMode);
+    const { sessionId, state, learning_mode } = createSession(learningMode);
+
     const promptText =
       "How can I help you today?\n\nTell me what you want to learn, and optionally the language (java/python/cpp/sql) and how many problems (1–7).";
-    const nextKey = null;
 
     // Persist the initial assistant prompt so conversation logs are complete.
     sessionMessageDb.create(crypto.randomUUID(), sessionId, "assistant", promptText);
     logConversationMessage({ sessionId, role: "assistant", content: promptText });
 
     res.status(201).json({
-      sessionId,
+      threadId: sessionId,
       state,
       learning_mode,
       nextQuestion: promptText,
-      questionKey: nextKey,
+      questionKey: null,
       done: false,
       next_action: "ask",
     });
   } catch (err: any) {
-    console.error("Error in POST /sessions:", err);
-    res.status(500).json({ error: "Failed to create session." });
+    console.error("Error in POST /threads:", err);
+    res.status(500).json({ error: "Failed to create thread." });
   }
 });
 
-// List sessions for the authenticated user (for chat history UI).
-sessionsRouter.get("/", authenticateToken, (req: AuthRequest, res) => {
+threadsRouter.get("/", (req, res) => {
   try {
-    const userId = req.user!.id;
     const rawLimit = (req.query as any)?.limit;
     const parsedLimit =
       typeof rawLimit === "string" && rawLimit.trim() ? Number.parseInt(rawLimit, 10) : undefined;
     const limit = typeof parsedLimit === "number" && Number.isFinite(parsedLimit) ? parsedLimit : 20;
 
-    const sessions = sessionDb.listSummariesByUserId(userId, limit);
-    res.json({ sessions });
+    const threads = sessionDb.listSummaries(limit);
+    res.json({ threads });
   } catch (err: any) {
-    console.error("Error in GET /sessions:", err);
-    res.status(500).json({ error: "Failed to list sessions." });
+    console.error("Error in GET /threads:", err);
+    res.status(500).json({ error: "Failed to list threads." });
   }
 });
 
 // Server-sent events stream for UX-friendly progress tracing (no chain-of-thought).
-sessionsRouter.get("/:id/trace", (req, res) => {
+threadsRouter.get("/:id/trace", (req, res) => {
   const id = req.params.id as string;
 
   if (!isTraceEnabled()) {
@@ -95,11 +96,13 @@ sessionsRouter.get("/:id/trace", (req, res) => {
   }
 
   try {
-    // Ensure session exists.
+    // Ensure thread exists.
     getSession(id);
   } catch (err: any) {
     const status = typeof err?.status === "number" ? err.status : 500;
-    return res.status(status).json({ error: status === 404 ? "Session not found." : "Failed to open trace." });
+    return res.status(status).json({
+      error: status === 404 ? "Thread not found." : "Failed to open trace.",
+    });
   }
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -108,7 +111,9 @@ sessionsRouter.get("/:id/trace", (req, res) => {
 
   // Initial event
   res.write(`event: ready\n`);
-  res.write(`data: ${JSON.stringify({ ts: new Date().toISOString(), event: "trace.ready", sessionId: id })}\n\n`);
+  res.write(
+    `data: ${JSON.stringify({ ts: new Date().toISOString(), event: "trace.ready", threadId: id })}\n\n`,
+  );
 
   const unsubscribe = subscribeTrace(id, (payload) => {
     res.write(`data: ${JSON.stringify(sanitizeTracePayload(payload))}\n\n`);
@@ -125,15 +130,17 @@ sessionsRouter.get("/:id/trace", (req, res) => {
 });
 
 // Server-sent events stream for structured generation progress (no prompts, no reasoning).
-sessionsRouter.get("/:id/generate/stream", (req, res) => {
+threadsRouter.get("/:id/generate/stream", (req, res) => {
   const id = req.params.id as string;
 
   try {
-    // Ensure session exists.
+    // Ensure thread exists.
     getSession(id);
   } catch (err: any) {
     const status = typeof err?.status === "number" ? err.status : 500;
-    return res.status(status).json({ error: status === 404 ? "Session not found." : "Failed to open progress stream." });
+    return res.status(status).json({
+      error: status === 404 ? "Thread not found." : "Failed to open progress stream.",
+    });
   }
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -142,7 +149,9 @@ sessionsRouter.get("/:id/generate/stream", (req, res) => {
 
   // Initial event
   res.write(`event: ready\n`);
-  res.write(`data: ${JSON.stringify({ ts: new Date().toISOString(), event: "progress.ready", sessionId: id })}\n\n`);
+  res.write(
+    `data: ${JSON.stringify({ ts: new Date().toISOString(), event: "progress.ready", threadId: id })}\n\n`,
+  );
 
   // Replay buffered events (covers the "stream opened late" case).
   const buffered = getGenerationProgressBuffer(id);
@@ -182,7 +191,7 @@ sessionsRouter.get("/:id/generate/stream", (req, res) => {
   });
 });
 
-sessionsRouter.post("/:id/messages", optionalAuth, async (req: AuthRequest, res) => {
+threadsRouter.post("/:id/messages", async (req, res) => {
   try {
     const id = req.params.id as string;
     const { message } = req.body ?? {};
@@ -191,13 +200,10 @@ sessionsRouter.post("/:id/messages", optionalAuth, async (req: AuthRequest, res)
       return res.status(400).json({ error: "message is required string." });
     }
 
-    // If the user is logged in and this is an anonymous session, attach it so it appears in chat history.
+    // Ensure thread exists.
     const s = sessionDb.findById(id);
     if (!s) {
-      return res.status(404).json({ error: "Session not found." });
-    }
-    if (s.user_id == null && req.user?.id != null) {
-      sessionDb.setUserId(id, req.user.id);
+      return res.status(404).json({ error: "Thread not found." });
     }
 
     const result = await processSessionMessage(id, message.trim());
@@ -231,13 +237,13 @@ sessionsRouter.post("/:id/messages", optionalAuth, async (req: AuthRequest, res)
   } catch (err: any) {
     const status = typeof err?.status === "number" ? err.status : 500;
     if (status >= 500) {
-      console.error("Error in POST /sessions/:id/messages:", err);
+      console.error("Error in POST /threads/:id/messages:", err);
     }
 
     res.status(status).json({
       error:
         status === 404
-          ? "Session not found."
+          ? "Thread not found."
           : status === 409
           ? err.message
           : "Failed to process message.",
@@ -245,13 +251,13 @@ sessionsRouter.post("/:id/messages", optionalAuth, async (req: AuthRequest, res)
   }
 });
 
-sessionsRouter.get("/:id", (req, res) => {
+threadsRouter.get("/:id", (req, res) => {
   try {
     const id = req.params.id as string;
     const s = getSession(id);
 
     res.json({
-      sessionId: s.id,
+      threadId: s.id,
       state: s.state,
       learning_mode: s.learning_mode,
       spec: s.spec,
@@ -265,20 +271,18 @@ sessionsRouter.get("/:id", (req, res) => {
   } catch (err: any) {
     const status = typeof err?.status === "number" ? err.status : 500;
     if (status >= 500) {
-      console.error("Error in GET /sessions/:id:", err);
+      console.error("Error in GET /threads/:id:", err);
     }
     res.status(status).json({
-      error: status === 404 ? "Session not found." : "Failed to fetch session.",
+      error: status === 404 ? "Thread not found." : "Failed to fetch thread.",
     });
   }
 });
 
-sessionsRouter.post("/:id/generate", authenticateToken, async (req: AuthRequest, res) => {
+threadsRouter.post("/:id/generate", async (req, res) => {
   try {
     const id = req.params.id as string;
-    const userId = req.user!.id;
-
-    const { activityId, problems } = await generateFromSession(id, userId);
+    const { activityId, problems } = await generateFromSession(id);
 
     res.status(200).json({
       activityId,
@@ -287,13 +291,13 @@ sessionsRouter.post("/:id/generate", authenticateToken, async (req: AuthRequest,
   } catch (err: any) {
     const status = typeof err?.status === "number" ? err.status : 500;
     if (status >= 500) {
-      console.error("Error in POST /sessions/:id/generate:", err);
+      console.error("Error in POST /threads/:id/generate:", err);
     }
 
     res.status(status).json({
       error:
         status === 404
-          ? "Session not found."
+          ? "Thread not found."
           : status === 409
           ? err.message
           : "Failed to generate activity.",
@@ -301,3 +305,4 @@ sessionsRouter.post("/:id/generate", authenticateToken, async (req: AuthRequest,
     });
   }
 });
+

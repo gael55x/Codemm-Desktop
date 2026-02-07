@@ -21,9 +21,6 @@ type Activity = {
   createdAt: string;
   status?: "DRAFT" | "PUBLISHED";
   timeLimitSeconds?: number | null;
-  communityPublishedAt?: string | null;
-  communitySummary?: string | null;
-  communityTags?: string[];
 };
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
@@ -53,20 +50,15 @@ export default function ActivityReviewPage() {
 
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [communityPublishing, setCommunityPublishing] = useState(false);
   const [editingProblemId, setEditingProblemId] = useState<string | null>(null);
   const [editInstruction, setEditInstruction] = useState<string>("");
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const [communitySummary, setCommunitySummary] = useState<string>("");
-  const [communityTagsText, setCommunityTagsText] = useState<string>("");
-
   const [tourOpen, setTourOpen] = useState(false);
 
   const isDraft = (activity?.status ?? "PUBLISHED") === "DRAFT";
-  const isCommunityPublished = Boolean(activity?.communityPublishedAt);
 
   const tourSteps: TourStep[] = [
     {
@@ -110,40 +102,12 @@ export default function ActivityReviewPage() {
     return `${window.location.origin}/activity/${activityId}`;
   }, [activityId]);
 
-  const tagsPreview = useMemo(() => {
-    const parts = communityTagsText
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((s) => s.replace(/^#/, ""))
-      .filter(Boolean);
-
-    const out: string[] = [];
-    const seen = new Set<string>();
-    for (const t of parts) {
-      const key = t.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(t);
-      if (out.length >= 10) break;
-    }
-    return out;
-  }, [communityTagsText]);
-
   useEffect(() => {
     async function load() {
       setLoading(true);
       setError(null);
       try {
-        const token = localStorage.getItem("codem-token");
-        if (!token) {
-          router.push("/auth/login");
-          return;
-        }
-
-        const res = await fetch(`${BACKEND_URL}/activities/${activityId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(`${BACKEND_URL}/activities/${activityId}`);
         const data = await res.json().catch(() => ({}));
 
         if (!res.ok) {
@@ -155,8 +119,6 @@ export default function ActivityReviewPage() {
 
         setActivity(act);
         setTitle(act.title ?? "");
-        setCommunitySummary(typeof act.communitySummary === "string" ? act.communitySummary : "");
-        setCommunityTagsText(Array.isArray(act.communityTags) ? act.communityTags.join(", ") : "");
         const mins =
           typeof act.timeLimitSeconds === "number" && act.timeLimitSeconds > 0
             ? String(Math.max(1, Math.round(act.timeLimitSeconds / 60)))
@@ -172,12 +134,6 @@ export default function ActivityReviewPage() {
   }, [activityId, router]);
 
   async function saveDraft(): Promise<Activity | null> {
-    const token = localStorage.getItem("codem-token");
-    if (!token) {
-      router.push("/auth/login");
-      return null;
-    }
-
     const mins = clampInt(Number.parseInt(timeLimitMinutes || "0", 10), 0, 8 * 60);
     const timeLimitSeconds = mins > 0 ? mins * 60 : null;
 
@@ -188,7 +144,6 @@ export default function ActivityReviewPage() {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           title: title.trim() || "Untitled activity",
@@ -214,15 +169,8 @@ export default function ActivityReviewPage() {
     try {
       await saveDraft();
 
-      const token = localStorage.getItem("codem-token");
-      if (!token) {
-        router.push("/auth/login");
-        return;
-      }
-
       const res = await fetch(`${BACKEND_URL}/activities/${activityId}/publish`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -238,78 +186,6 @@ export default function ActivityReviewPage() {
     }
   }
 
-  async function publishToCommunity() {
-    const token = localStorage.getItem("codem-token");
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
-    setCommunityPublishing(true);
-    setToast(null);
-    setError(null);
-    try {
-      const res = await fetch(`${BACKEND_URL}/activities/${activityId}/community/publish`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          ...(communitySummary.trim() ? { summary: communitySummary.trim() } : {}),
-          ...(tagsPreview.length ? { tags: tagsPreview } : {}),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || `Failed to publish to community (${res.status})`);
-      }
-      setActivity((prev) =>
-        prev
-          ? {
-              ...prev,
-              communityPublishedAt: typeof data?.communityPublishedAt === "string" ? data.communityPublishedAt : prev.communityPublishedAt,
-              communitySummary: communitySummary.trim() || prev.communitySummary || null,
-              communityTags: tagsPreview,
-            }
-          : prev,
-      );
-      setToast(isCommunityPublished ? "Community listing updated." : "Published to community.");
-    } catch (e: unknown) {
-      setError(getErrorMessage(e, "Failed to publish to community."));
-    } finally {
-      setCommunityPublishing(false);
-    }
-  }
-
-  async function unpublishFromCommunity() {
-    const token = localStorage.getItem("codem-token");
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
-    setCommunityPublishing(true);
-    setToast(null);
-    setError(null);
-    try {
-      const res = await fetch(`${BACKEND_URL}/activities/${activityId}/community/unpublish`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || `Failed to unpublish (${res.status})`);
-      }
-      setActivity((prev) => (prev ? { ...prev, communityPublishedAt: null } : prev));
-      setToast("Removed from community.");
-    } catch (e: unknown) {
-      setError(getErrorMessage(e, "Failed to unpublish from community."));
-    } finally {
-      setCommunityPublishing(false);
-    }
-  }
-
   async function copyShareLink() {
     if (!shareUrl) return;
     try {
@@ -321,12 +197,6 @@ export default function ActivityReviewPage() {
   }
 
   async function editProblemWithAi(problemId: string) {
-    const token = localStorage.getItem("codem-token");
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
     const instruction = editInstruction.trim();
     if (!instruction) {
       setEditError("Tell the AI what to change.");
@@ -341,7 +211,6 @@ export default function ActivityReviewPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ instruction }),
       });
@@ -384,12 +253,6 @@ export default function ActivityReviewPage() {
               className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Home
-            </button>
-            <button
-              onClick={() => router.push("/auth/login")}
-              className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-            >
-              Log in
             </button>
           </div>
         </div>
@@ -517,94 +380,6 @@ export default function ActivityReviewPage() {
               </div>
             )}
 
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-slate-900">Community</div>
-                  <div className="mt-1 text-xs text-slate-600">
-                    Publish your activity to the community feed so other devs can discover it.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => router.push("/community")}
-                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  View feed
-                </button>
-              </div>
-
-              {isDraft ? (
-                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                  Publish the activity first, then you can publish it to the community.
-                </div>
-              ) : (
-                <>
-                  <div className="mt-3 grid gap-3">
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary (optional)</div>
-                      <input
-                        value={communitySummary}
-                        onChange={(e) => setCommunitySummary(e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
-                        placeholder="What is this activity about?"
-                        maxLength={240}
-                      />
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Tags (comma-separated, optional)
-                      </div>
-                      <input
-                        value={communityTagsText}
-                        onChange={(e) => setCommunityTagsText(e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
-                        placeholder="e.g. sql, grouping, aggregation"
-                      />
-                      {tagsPreview.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {tagsPreview.map((t) => (
-                            <span key={t} className="rounded-full bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">
-                              {t}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={communityPublishing}
-                      onClick={() => void publishToCommunity()}
-                      className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
-                    >
-                      {communityPublishing ? "Saving…" : isCommunityPublished ? "Update community listing" : "Publish to community"}
-                    </button>
-                    {isCommunityPublished && (
-                      <button
-                        type="button"
-                        disabled={communityPublishing}
-                        onClick={() => void unpublishFromCommunity()}
-                        className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                      >
-                        Remove from community
-                      </button>
-                    )}
-                  </div>
-
-                  {isCommunityPublished && (
-                    <div className="mt-3 text-xs text-slate-500">
-                      Published to community:{" "}
-                      {typeof activity.communityPublishedAt === "string"
-                        ? new Date(activity.communityPublishedAt).toLocaleString()
-                        : "—"}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">

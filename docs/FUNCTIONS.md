@@ -5,6 +5,7 @@ This document describes what the desktop wrapper does (and does not do).
 ## What It Does
 
 - Validates Docker is installed and running (`docker info`).
+- Prompts for a workspace folder on first launch (and persists it).
 - Ensures monorepo dependencies are installed (`npm install` in repo root if `node_modules/` is missing).
 - Builds judge Docker images if missing (from `apps/backend/Dockerfile.*-judge`).
 - Starts `apps/backend` as a child process (via npm workspaces).
@@ -19,6 +20,7 @@ This document describes what the desktop wrapper does (and does not do).
 - Package into a distributable `.app` bundle.
 - Run frontend/backend in production mode from inside the app bundle.
 - Embed a code editor different from what `Codemm-frontend` already provides.
+- Remove the HTTP boundary between UI and engine (this is planned; see `docs/architecture/MIGRATION.md`).
 
 ## Environment Variables
 
@@ -28,7 +30,8 @@ This document describes what the desktop wrapper does (and does not do).
 - `CODEMM_FRONTEND_DIR` default `apps/frontend`
 - `DOCKER_PATH` optional path to the `docker` binary (helps for GUI-launched apps with a limited PATH)
 - `CODEMM_REBUILD_JUDGE=1` forces rebuilding judge Docker images on launch
-- `CODEMM_DB_PATH` optional path to the backend SQLite DB file (the IDE sets this to `<userData>/codem.db` by default)
+- `CODEMM_WORKSPACE_DIR` optional workspace folder override (skips folder picker)
+- `CODEMM_DB_PATH` optional path to the backend SQLite DB file (defaults to `<workspaceDataDir>/codemm.db`)
 - `CODEMM_DB_DIR` optional directory for the backend DB (used only if `CODEMM_DB_PATH` is not set)
 - `CODEMM_USER_DATA_DIR` overrides Electron `userData` dir
 - `CODEMM_CACHE_DIR` overrides Electron cache dir
