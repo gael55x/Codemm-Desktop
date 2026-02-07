@@ -26,7 +26,7 @@ Fix:
 - Start Docker Desktop and wait until it finishes starting.
 - Relaunch `Codemm-IDE`.
 
-## Port Already In Use (3000 or 4000)
+## Port Already In Use (3000)
 
 Symptom:
 
@@ -36,7 +36,7 @@ Symptom:
 Fix:
 
 - Start the app with different ports:
-  - `CODEMM_BACKEND_PORT=4010 CODEMM_FRONTEND_PORT=3010 npm run dev`
+  - `CODEMM_FRONTEND_PORT=3010 npm run dev`
 
 ## Frontend Fails With Missing Dependencies
 
@@ -69,9 +69,8 @@ Symptom:
 
 Fix:
 
-- Check terminal logs for `[backend]` and `[frontend]`.
-- Confirm these URLs work in a browser:
-  - `http://127.0.0.1:4000/health`
+- Check terminal logs for `[engine]` and `[frontend]`.
+- Confirm the frontend URL works in a browser:
   - `http://127.0.0.1:3000/`
 
 ## No Workspace Selected

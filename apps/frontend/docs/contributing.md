@@ -1,43 +1,8 @@
-# Contributing
+# Contributing (Frontend)
 
-This guide is for contributors working on Codemm Frontend.
+This package is part of the `Codemm-IDE/` monorepo.
 
-## Local setup
+- Preferred workflow: run the full IDE from repo root with `npm run dev`.
+- Renderer ↔ engine integration happens through `window.codemm` (preload IPC). Avoid introducing new network/HTTP boundaries.
 
-Prereqs:
-
-- Node.js 18+
-- npm
-
-Install and run:
-
-```bash
-npm install
-npm run dev
-```
-
-Set backend URL in `.env` if needed:
-
-- `NEXT_PUBLIC_BACKEND_URL`
-
-## Development principles
-
-- Treat backend contracts as authoritative (`questionKey`, `spec`, progress events).
-- Prefer additive changes to UI state and event handling.
-- Handle network errors and SSE reconnects gracefully.
-- Avoid embedding backend decision logic in the client.
-
-## Where to change what
-
-- UI routes: `src/app/*`
-- shared components: `src/components/*`
-- client utilities: `src/lib/*`
-- API event types: `src/types/*`
-
-## Docs
-
-If you change frontend integration behavior (API calls, SSE handling, auth token usage), update:
-
-- `docs/api/backend.md`
-- `docs/data-flow.md`
-- `docs/error-handling.md`
+For repo-wide contribution guidelines, see `CONTRIBUTING.md` in the repo root.

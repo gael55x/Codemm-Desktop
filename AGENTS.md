@@ -6,7 +6,7 @@ This file defines maintainability + security rules for work in this repository.
 
 - Ship a macOS desktop app that feels like the existing `Codemm-frontend` UI.
 - The desktop app must start everything needed locally:
-  - backend (agent loop + persistence)
+  - local engine (agent loop + persistence)
   - frontend UI
   - Docker-based judge (external dependency)
 - Keep Codemm’s safety property intact: untrusted code execution stays inside Docker (never in Electron).
@@ -15,18 +15,18 @@ This file defines maintainability + security rules for work in this repository.
 
 - This repo is a monorepo:
   - `apps/ide` Electron wrapper
-  - `apps/backend` backend (agent loop + Docker judge + SQLite)
+  - `apps/backend` local engine (agent loop + Docker judge + SQLite)
   - `apps/frontend` frontend UI (Next.js)
-- The Electron wrapper starts backend + frontend as child processes (see `apps/ide/main.js`).
+- The Electron wrapper starts engine + frontend as child processes (see `apps/ide/main.js`) and bridges UI→engine via a preload allowlist (`apps/ide/preload.js`).
 
 Near-term direction: bundle backend + frontend into the packaged app (no separate terminals, no system Node required).
 
 ## Dev Commands
 
 - Run the IDE (dev): `npm run dev`
-- Ports:
-  - backend: `CODEMM_BACKEND_PORT` (default `4000`)
+- Port (dev UI):
   - frontend: `CODEMM_FRONTEND_PORT` (default `3000`)
+  - engine: **no HTTP port** (IPC only)
 
 ## Required Practices
 

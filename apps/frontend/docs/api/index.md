@@ -1,7 +1,7 @@
-# API
+# API (Renderer ↔ Engine)
 
-The frontend has two relevant “API surfaces”:
+Codemm-IDE has no internal HTTP API. The renderer talks to the engine via Electron IPC:
 
-- Backend HTTP/SSE API consumed by the frontend: `backend.md`
-- Frontend routes and configuration: `frontend.md`
-
+- Renderer calls `window.codemm.*` (preload bridge): `apps/ide/preload.js`
+- Electron main allowlists + forwards calls to the engine: `apps/ide/main.js`
+- Engine RPC methods live in: `apps/backend/src/ipcServer.ts`

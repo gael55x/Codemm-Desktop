@@ -14,7 +14,7 @@ This repo (`Codemm-IDE/`) is the single source of truth.
   - UI uses `/threads`
   - engine keeps `/sessions` only as a **transitional alias**
 
-## Phase 2 (In Progress): Remove HTTP/Express/SSE Boundary
+## Phase 2 (Done): Remove HTTP/Express/SSE Boundary
 
 Transitional → final:
 
@@ -29,7 +29,7 @@ Transitional → final:
 Status (as of 2026-02-07):
 - UI call sites migrated to IPC (no `fetch()`/`EventSource` to engine).
 - Engine boots via IPC (no backend port/health).
-- Remaining: delete Express/SSE server code from `apps/backend`.
+- Express/SSE server code deleted from `apps/backend`.
 
 ## Phase 3 (Next): Renderer Build Embedded in App
 

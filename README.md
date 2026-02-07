@@ -2,8 +2,8 @@
 
 Desktop wrapper for Codemm that starts (locally):
 
-- `apps/backend` (agent loop + Docker judge) on `http://127.0.0.1:4000`
-- `apps/frontend` (Next.js UI) on `http://127.0.0.1:3000`
+- `apps/backend` local engine (agent loop + Docker judge + SQLite) via **IPC** (no HTTP port)
+- `apps/frontend` (Next.js UI) on `http://127.0.0.1:3000` (dev)
 
 Then it opens the frontend in an Electron window so you don't have to run backend + frontend manually.
 
@@ -29,7 +29,7 @@ On first launch, the app prompts you to select a workspace folder. Configure you
 ## Monorepo Layout
 
 - `apps/ide` Electron wrapper
-- `apps/backend` Express backend (agent loop + judge + SQLite)
+- `apps/backend` local engine (IPC)
 - `apps/frontend` Next.js UI
 
 ## Contribute
@@ -46,11 +46,12 @@ See `docs/FUNCTIONS.md`.
 
 ## Environment Overrides
 
-- `CODEMM_BACKEND_PORT` (default: `4000`)
 - `CODEMM_FRONTEND_PORT` (default: `3000`)
 - `CODEMM_BACKEND_DIR` (default: `apps/backend`)
 - `CODEMM_FRONTEND_DIR` (default: `apps/frontend`)
 - `DOCKER_PATH` to point at the `docker` binary if it isn't on PATH
+- `CODEMM_WORKSPACE_DIR` optional workspace folder override (skips folder picker)
+- `CODEMM_DB_PATH` optional absolute path to the workspace SQLite DB file
 
 ## Notes
 

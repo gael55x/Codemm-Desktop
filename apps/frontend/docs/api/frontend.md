@@ -1,27 +1,11 @@
-# Frontend Surface
+# Renderer API
 
-This document describes the frontend’s public routes and configuration as implemented today.
+The renderer’s public surface for engine interactions is `window.codemm` (Electron preload).
 
-## Web routes
+Key namespaces:
 
-The UI is implemented as Next.js App Router pages under `src/app`:
-
-- `/` – session UI (create session, chat, generate, history)
-- `/activity/[id]` – solve UI (editor + run/submit)
-- `/activity/[id]/review` – activity review UI (persisted activity view)
-- `/chat` – chat UI route (if enabled/used)
-- `/community` – community feed UI
-- `/profile` – user profile and history
-- `/auth/login` – login
-- `/auth/register` – registration
-- `/settings/llm` – per-user LLM key settings
-
-## Environment configuration
-
-- `NEXT_PUBLIC_BACKEND_URL` – backend base URL (default: `http://localhost:4000`)
-
-## Operational notes
-
-- Generation progress uses `EventSource` (SSE) and should handle reconnects.
-- Auth tokens are sent as bearer tokens on auth-required requests.
-
+- `window.codemm.threads` – threads (create/list/get/postMessage/generate + generation stream)
+- `window.codemm.activities` – activity load/edit/publish
+- `window.codemm.judge` – Docker-backed `/run` and `/submit` equivalents
+- `window.codemm.secrets` – local API key settings (no key is ever returned to the renderer)
+- `window.codemm.workspace` – workspace selection/info

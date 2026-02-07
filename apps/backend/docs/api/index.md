@@ -1,6 +1,9 @@
-# API
+# API (Engine)
 
-Codemm Backend exposes a JSON HTTP API plus SSE endpoints for progress/trace streaming.
+Codemm-IDE runs the engine locally and does not expose an HTTP API.
 
-- Backend API reference (authoritative): `backend.md`
-- Frontend/client integration notes: `frontend.md`
+Authoritative references:
+
+- Engine RPC methods: `apps/backend/src/ipcServer.ts`
+- Electron main allowlist: `apps/ide/main.js`
+- Preload bridge: `apps/ide/preload.js`

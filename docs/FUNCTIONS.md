@@ -8,8 +8,8 @@ This document describes what the desktop wrapper does (and does not do).
 - Prompts for a workspace folder on first launch (and persists it).
 - Ensures monorepo dependencies are installed (`npm install` in repo root if `node_modules/` is missing).
 - Builds judge Docker images if missing (from `apps/backend/Dockerfile.*-judge`).
-- Starts `apps/backend` as a child process (via npm workspaces).
-- Waits for backend readiness via `GET /health` (default: `http://127.0.0.1:4000/health`).
+- Starts the local engine (`apps/backend`) as a child process via Node IPC (`fork` → `apps/backend/ipc-server.js`).
+- Verifies engine connectivity via an IPC ping (no HTTP ports/health checks).
 - Starts `apps/frontend` as a child process (via npm workspaces).
 - Waits for frontend readiness (default: `http://127.0.0.1:3000/`).
 - Opens the frontend URL inside an Electron `BrowserWindow`.
@@ -20,11 +20,10 @@ This document describes what the desktop wrapper does (and does not do).
 - Package into a distributable `.app` bundle.
 - Run frontend/backend in production mode from inside the app bundle.
 - Embed a code editor different from what `Codemm-frontend` already provides.
-- Remove the HTTP boundary between UI and engine (this is planned; see `docs/architecture/MIGRATION.md`).
+- Embed the frontend build inside the `.app` bundle (Phase 3).
 
 ## Environment Variables
 
-- `CODEMM_BACKEND_PORT` default `4000`
 - `CODEMM_FRONTEND_PORT` default `3000`
 - `CODEMM_BACKEND_DIR` default `apps/backend`
 - `CODEMM_FRONTEND_DIR` default `apps/frontend`
@@ -41,7 +40,7 @@ This document describes what the desktop wrapper does (and does not do).
 
 Child process logs are forwarded to the terminal with prefixes:
 
-- `[backend] ...`
+- `[engine] ...`
 - `[frontend] ...`
 
 ## Security Defaults
@@ -51,4 +50,4 @@ Electron window is configured with:
 - `nodeIntegration: false`
 - `contextIsolation: true`
 
-If we add IPC later, we should do it via a strict `preload` bridge with allowlisted channels only.
+IPC is implemented via a strict preload bridge with allowlisted channels only (`apps/ide/preload.js`).
