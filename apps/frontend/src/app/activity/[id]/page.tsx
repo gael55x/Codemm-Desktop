@@ -85,6 +85,15 @@ type RunResult = {
 
 type CodeFiles = Record<string, string>;
 
+type ProblemStatus = "not_started" | "in_progress" | "passed" | "failed";
+
+type FeedbackState = {
+  problemId: string;
+  kind: "run" | "tests";
+  atIso: string;
+  result: JudgeResult | RunResult;
+};
+
 function requireActivitiesApi() {
   const api = (window as any)?.codemm?.activities;
   if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
@@ -106,6 +115,18 @@ function getProblemLanguage(p: Problem | null | undefined): LanguageId {
 
 function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+function isJudgeResult(x: JudgeResult | RunResult | null | undefined): x is JudgeResult {
+  if (!x || typeof x !== "object") return false;
+  const anyX = x as any;
+  return (
+    typeof anyX.success === "boolean" &&
+    Array.isArray(anyX.passedTests) &&
+    Array.isArray(anyX.failedTests) &&
+    typeof anyX.stdout === "string" &&
+    typeof anyX.stderr === "string"
+  );
 }
 
 function countStudentTodoMarkersInText(text: string): number {
@@ -331,7 +352,8 @@ export default function ActivityPage() {
   const [timerBaseSeconds, setTimerBaseSeconds] = useState(0);
   const [timerStartedAtMs, setTimerStartedAtMs] = useState<number | null>(null);
   const [timerSeconds, setTimerSeconds] = useState(0);
-  const [result, setResult] = useState<JudgeResult | RunResult | null>(null);
+  const [problemStatusById, setProblemStatusById] = useState<Record<string, ProblemStatus>>({});
+  const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [running, setRunning] = useState(false);
   const [showTests, setShowTests] = useState(false);
@@ -340,6 +362,39 @@ export default function ActivityPage() {
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const todoDecorationsRef = useRef<string[]>([]);
+
+  const workspacesRef = useRef<
+    Record<
+      string,
+      {
+        files: CodeFiles;
+        fileRoles: Record<string, FileRole>;
+        activeFilename: string;
+        entrypointClass: string;
+      }
+    >
+  >({});
+  const selectedProblemIdRef = useRef<string | null>(null);
+  const filesRef = useRef<CodeFiles>(files);
+  const fileRolesRef = useRef<Record<string, FileRole>>(fileRoles);
+  const activeFilenameRef = useRef<string>(activeFilename);
+  const entrypointClassRef = useRef<string>(entrypointClass);
+
+  useEffect(() => {
+    selectedProblemIdRef.current = selectedProblemId;
+  }, [selectedProblemId]);
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+  useEffect(() => {
+    fileRolesRef.current = fileRoles;
+  }, [fileRoles]);
+  useEffect(() => {
+    activeFilenameRef.current = activeFilename;
+  }, [activeFilename]);
+  useEffect(() => {
+    entrypointClassRef.current = entrypointClass;
+  }, [entrypointClass]);
 
   function updateTodoDecorations(nextCode: string) {
     const editor = editorRef.current;
@@ -392,69 +447,119 @@ export default function ActivityPage() {
         nextFiles[f.path] = f.content;
         nextRoles[f.path] = f.role;
       }
-      setFiles(nextFiles);
-      setFileRoles(nextRoles);
       const entryClass = problem.workspace.entrypoint ?? "Main";
-      setEntrypointClass(entryClass);
       const firstEditable =
         problem.workspace.files.find((f) => f.role !== "readonly")?.path ??
         problem.workspace.files[0]!.path;
-      setActiveFilename(firstEditable);
-      return;
+      return {
+        files: nextFiles,
+        fileRoles: nextRoles,
+        entrypointClass: entryClass,
+        activeFilename: firstEditable,
+      };
     }
 
     if (lang === "python") {
-      setFiles({
-        "solution.py": starterCode,
-        "main.py": buildPythonMainTemplate(),
-      });
-      setFileRoles({
-        "solution.py": "support",
-        "main.py": "entry",
-      });
-      setEntrypointClass("main.py");
-      setActiveFilename("solution.py");
-      return;
+      return {
+        files: {
+          "solution.py": starterCode,
+          "main.py": buildPythonMainTemplate(),
+        },
+        fileRoles: {
+          "solution.py": "support",
+          "main.py": "entry",
+        },
+        entrypointClass: "main.py",
+        activeFilename: "solution.py",
+      };
     }
 
     if (lang === "cpp") {
-      setFiles({
-        "solution.cpp": starterCode,
-        "main.cpp": buildCppMainTemplate(),
-      });
-      setFileRoles({
-        "solution.cpp": "support",
-        "main.cpp": "entry",
-      });
-      setEntrypointClass("main.cpp");
-      setActiveFilename("solution.cpp");
-      return;
+      return {
+        files: {
+          "solution.cpp": starterCode,
+          "main.cpp": buildCppMainTemplate(),
+        },
+        fileRoles: {
+          "solution.cpp": "support",
+          "main.cpp": "entry",
+        },
+        entrypointClass: "main.cpp",
+        activeFilename: "solution.cpp",
+      };
     }
 
     if (lang === "sql") {
-      setFiles({
-        "solution.sql": starterCode,
-      });
-      setFileRoles({
-        "solution.sql": "support",
-      });
-      setEntrypointClass("solution.sql");
-      setActiveFilename("solution.sql");
-      return;
+      return {
+        files: {
+          "solution.sql": starterCode,
+        },
+        fileRoles: {
+          "solution.sql": "support",
+        },
+        entrypointClass: "solution.sql",
+        activeFilename: "solution.sql",
+      };
     }
 
     const primaryClassName = inferJavaClassName(starterCode, "Solution");
     const primaryFilename = `${primaryClassName}.java`;
-    setFiles({
-      [primaryFilename]: starterCode,
-      "Main.java": buildMainJavaTemplate(primaryClassName),
-    });
-    setFileRoles({
-      [primaryFilename]: "support",
-      "Main.java": "entry",
-    });
-    setEntrypointClass("Main");
-    setActiveFilename(primaryFilename);
+    return {
+      files: {
+        [primaryFilename]: starterCode,
+        "Main.java": buildMainJavaTemplate(primaryClassName),
+      },
+      fileRoles: {
+        [primaryFilename]: "support",
+        "Main.java": "entry",
+      },
+      entrypointClass: "Main",
+      activeFilename: primaryFilename,
+    };
+  }
+
+  function buildWorkspaceForProblem(problem: Problem) {
+    // Reuse the previous loader logic, but return data instead of mutating state.
+    return loadProblemIntoWorkspace(problem) as {
+      files: CodeFiles;
+      fileRoles: Record<string, FileRole>;
+      activeFilename: string;
+      entrypointClass: string;
+    };
+  }
+
+  function saveActiveWorkspace(problemId: string) {
+    workspacesRef.current[problemId] = {
+      files: filesRef.current,
+      fileRoles: fileRolesRef.current,
+      activeFilename: activeFilenameRef.current,
+      entrypointClass: entrypointClassRef.current,
+    };
+  }
+
+  function restoreWorkspace(problem: Problem) {
+    const existing = workspacesRef.current[problem.id];
+    const ws = existing ?? buildWorkspaceForProblem(problem);
+    if (!existing) {
+      workspacesRef.current[problem.id] = ws;
+    }
+    setFiles(ws.files);
+    setFileRoles(ws.fileRoles);
+    setActiveFilename(ws.activeFilename);
+    setEntrypointClass(ws.entrypointClass);
+  }
+
+  function selectProblem(problem: Problem) {
+    const prevId = selectedProblemIdRef.current;
+    if (prevId && prevId !== problem.id) {
+      saveActiveWorkspace(prevId);
+    }
+    setSelectedProblemId(problem.id);
+    restoreWorkspace(problem);
+
+    const limit = typeof timeLimitSeconds === "number" ? timeLimitSeconds : null;
+    const mode: "countup" | "countdown" = typeof limit === "number" && limit > 0 ? "countdown" : "countup";
+    loadOrStartTimer(problem.id, limit, mode);
   }
 
   function timerStorageKey(problemId: string): string {
@@ -538,6 +643,12 @@ export default function ActivityPage() {
     async function load() {
       try {
         setLoadError(null);
+        // Reset per-activity in-memory state.
+        workspacesRef.current = {};
+        setFeedback(null);
+        setShowTests(false);
+        setShowDetails(false);
+        setShowDiagnostics(false);
         const data = await requireActivitiesApi().get({ id: activityId });
         const act = data?.activity as Activity | undefined;
         if (!act) {
@@ -546,10 +657,11 @@ export default function ActivityPage() {
         }
 
         setActivity(act);
+        setProblemStatusById(Object.fromEntries(act.problems.map((p) => [p.id, "not_started" as ProblemStatus])));
           if (act.problems.length > 0) {
             const first = act.problems[0];
             setSelectedProblemId(first.id);
-            loadProblemIntoWorkspace(first);
+            restoreWorkspace(first);
           }
 
           const limit = typeof act.timeLimitSeconds === "number" ? act.timeLimitSeconds : null;
@@ -633,27 +745,42 @@ export default function ActivityPage() {
     updateTodoDecorations(activeCode);
   }, [activeFilename, activeCode]);
 
+  const feedbackResult = feedback?.result ?? null;
   const junitTree =
-    result && "success" in result ? parseJUnitTree(result.stdout ?? "") : { passed: [], failed: [] };
+    isJudgeResult(feedbackResult)
+      ? parseJUnitTree(feedbackResult.stdout ?? "")
+      : { passed: [], failed: [] };
   const junitFailures =
-    result && "success" in result ? parseJUnitFailures(result.stdout ?? "") : {};
+    isJudgeResult(feedbackResult)
+      ? parseJUnitFailures(feedbackResult.stdout ?? "")
+      : {};
   const passedTests =
-    result && "success" in result && result.passedTests.length > 0 ? result.passedTests : junitTree.passed;
+    isJudgeResult(feedbackResult) && feedbackResult.passedTests.length > 0
+      ? feedbackResult.passedTests
+      : junitTree.passed;
   const failedTests =
-    result && "success" in result && result.failedTests.length > 0 ? result.failedTests : junitTree.failed;
-  const judgeTimedOut =
-    Boolean(result && "success" in result && (result as JudgeResult).timedOut);
+    isJudgeResult(feedbackResult) && feedbackResult.failedTests.length > 0
+      ? feedbackResult.failedTests
+      : junitTree.failed;
+  const judgeTimedOut = Boolean(isJudgeResult(feedbackResult) && feedbackResult.timedOut);
   const judgeExitCode =
-    result && "success" in result && typeof (result as JudgeResult).exitCode === "number"
-      ? (result as JudgeResult).exitCode
+    isJudgeResult(feedbackResult) && typeof feedbackResult.exitCode === "number"
+      ? feedbackResult.exitCode
       : undefined;
 
   async function handleRun() {
     if (!selectedProblem) return;
+    setShowDetails(false);
+    setShowDiagnostics(false);
     if (selectedLanguage === "sql") {
-      setResult({
-        stdout: "",
-        stderr: 'SQL activities are graded via "Run tests".',
+      setFeedback({
+        problemId: selectedProblem.id,
+        kind: "run",
+        atIso: new Date().toISOString(),
+        result: {
+          stdout: "",
+          stderr: 'SQL activities are graded via "Run tests".',
+        },
       });
       return;
     }
@@ -662,10 +789,15 @@ export default function ActivityPage() {
         selectedLanguage === "cpp"
           ? "int main(...)"
           : "`public static void main(String[] args)`";
-      setResult({
-        stdout: "",
-        stderr:
-          `No ${mainSig} detected in ${entryFile}.\n\nThis activity is graded by unit tests. Use "Run tests" to see pass/fail, or add a main() entrypoint if you want to print/debug locally.`,
+      setFeedback({
+        problemId: selectedProblem.id,
+        kind: "run",
+        atIso: new Date().toISOString(),
+        result: {
+          stdout: "",
+          stderr:
+            `No ${mainSig} detected in ${entryFile}.\n\nThis activity is graded by unit tests. Use "Run tests" to see pass/fail, or add a main() entrypoint if you want to print/debug locally.`,
+        },
       });
       return;
     }
@@ -681,7 +813,12 @@ export default function ActivityPage() {
       });
 
       if (!data || typeof data !== "object") {
-        setResult({ stdout: "", stderr: "Failed to run code (invalid response)." });
+        setFeedback({
+          problemId: selectedProblem.id,
+          kind: "run",
+          atIso: new Date().toISOString(),
+          result: { stdout: "", stderr: "Failed to run code (invalid response)." },
+        });
         return;
       }
 
@@ -695,12 +832,19 @@ export default function ActivityPage() {
             : "",
       };
 
-      setResult(runResult);
+      setFeedback({ problemId: selectedProblem.id, kind: "run", atIso: new Date().toISOString(), result: runResult });
+      setProblemStatusById((prev) => {
+        const cur = prev[selectedProblem.id] ?? "not_started";
+        if (cur === "not_started") return { ...prev, [selectedProblem.id]: "in_progress" };
+        return prev;
+      });
     } catch (e) {
       console.error(e);
-      setResult({
-        stdout: "",
-        stderr: "Failed to run code. Please try again.",
+      setFeedback({
+        problemId: selectedProblem.id,
+        kind: "run",
+        atIso: new Date().toISOString(),
+        result: { stdout: "", stderr: "Failed to run code. Please try again." },
       });
     } finally {
       setRunning(false);
@@ -709,6 +853,8 @@ export default function ActivityPage() {
 
   async function handleRunTests() {
     if (!selectedProblem) return;
+    setShowDetails(false);
+    setShowDiagnostics(false);
     setSubmitting(true);
     try {
       const testSuite = selectedProblem.test_suite || selectedProblem.testSuite || "";
@@ -747,7 +893,11 @@ export default function ActivityPage() {
         testCaseDetails: Array.isArray(data.testCaseDetails) ? data.testCaseDetails : undefined,
       };
 
-      setResult(safeResult);
+      setFeedback({ problemId: selectedProblem.id, kind: "tests", atIso: new Date().toISOString(), result: safeResult });
+      setProblemStatusById((prev) => ({
+        ...prev,
+        [selectedProblem.id]: safeResult.success && !safeResult.timedOut ? "passed" : "failed",
+      }));
       setIsTimerRunning(false);
     } catch (e) {
       console.error(e);
@@ -781,15 +931,22 @@ export default function ActivityPage() {
         ? CPP_FILENAME_PATTERN
         : JAVA_FILENAME_PATTERN;
     if (!pattern.test(name)) {
-      setResult({
-        stdout: "",
-        stderr:
-          selectedLanguage === "python"
-            ? 'Invalid filename. Use something like "utils.py" (letters/numbers/underscore, must end with .py).'
-            : selectedLanguage === "cpp"
-            ? 'Invalid filename. Use something like "helper.hpp" or "helper.cpp" (letters/numbers/underscore, must end with .hpp/.h/.cpp).'
-            : 'Invalid filename. Use something like "Helper.java" (letters/numbers/underscore, must end with .java).',
-      });
+      if (selectedProblem) {
+        setFeedback({
+          problemId: selectedProblem.id,
+          kind: "run",
+          atIso: new Date().toISOString(),
+          result: {
+            stdout: "",
+            stderr:
+              selectedLanguage === "python"
+                ? 'Invalid filename. Use something like "utils.py" (letters/numbers/underscore, must end with .py).'
+                : selectedLanguage === "cpp"
+                ? 'Invalid filename. Use something like "helper.hpp" or "helper.cpp" (letters/numbers/underscore, must end with .hpp/.h/.cpp).'
+                : 'Invalid filename. Use something like "Helper.java" (letters/numbers/underscore, must end with .java).',
+          },
+        });
+      }
       return;
     }
     if (Object.prototype.hasOwnProperty.call(files, name)) {
@@ -808,7 +965,6 @@ export default function ActivityPage() {
     setFiles((prev) => ({ ...prev, [name]: skeleton }));
     setFileRoles((prev) => ({ ...prev, [name]: "support" }));
     setActiveFilename(name);
-    setResult(null);
   }
 
   if (loading) {
@@ -880,503 +1036,647 @@ export default function ActivityPage() {
               </button>
             )}
             <div className="rounded-full bg-slate-100 px-4 py-1 text-xs font-medium text-slate-700">
+              {(() => {
+                const idx = activity.problems.findIndex((p) => p.id === selectedProblemId);
+                const n = idx >= 0 ? idx + 1 : 1;
+                return `Problem ${n}/${activity.problems.length}`;
+              })()}
+            </div>
+            <div className="rounded-full bg-slate-100 px-4 py-1 text-xs font-medium text-slate-700">
               {timerMode === "countdown" ? "Left" : "Time"}&nbsp;{formatTime(timerSeconds)}
             </div>
           </div>
         </header>
 
         {/* Main layout */}
-        <main className="grid flex-1 gap-4 md:grid-cols-[minmax(220px,1.1fr)_minmax(0,3.2fr)_minmax(220px,1.3fr)]">
-          {/* Left: problems + description */}
-          <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <h2 className="text-sm font-semibold text-slate-900">
-              Problems
-            </h2>
-            <div className="flex flex-col gap-2">
-              {activity.problems.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => {
-                    setSelectedProblemId(p.id);
-                    loadProblemIntoWorkspace(p);
-                    setResult(null);
-                    setShowTests(false);
-                    const limit = typeof timeLimitSeconds === "number" ? timeLimitSeconds : null;
-                    const mode: "countup" | "countdown" = typeof limit === "number" && limit > 0 ? "countdown" : "countup";
-                    loadOrStartTimer(p.id, limit, mode);
-                  }}
-                  className={`flex flex-col rounded-xl border px-3 py-2 text-left text-sm transition ${
-                    selectedProblemId === p.id
-                      ? "border-blue-500 bg-white shadow-sm"
-                      : "border-transparent bg-white hover:border-slate-200 hover:shadow-sm"
-                  }`}
-                >
-                  <span className="font-medium text-slate-900">
-                    {p.title}
-                  </span>
-                  <span className="line-clamp-2 text-xs text-slate-500">
-                    {p.description}
-                  </span>
-                  {p.pedagogy && typeof p.pedagogy.scaffold_level === "number" && (
-                    <span className="mt-1 text-[11px] font-medium text-slate-600">
-                      Guided • Scaffold {p.pedagogy.scaffold_level}%
-                    </span>
-                  )}
-                  <span className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                    {(p.language ?? "java").toUpperCase()}
-                  </span>
-                </button>
-              ))}
-            </div>
+        <main className="grid flex-1 min-h-0 gap-4 md:grid-cols-[minmax(260px,1.1fr)_minmax(0,3.2fr)_minmax(280px,1.3fr)]">
+          {/* Left: context only (active problem) */}
+          <section className="flex min-h-0 flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            {(() => {
+              const idx = Math.max(0, activity.problems.findIndex((p) => p.id === selectedProblemId));
+              const activeStatus: ProblemStatus =
+                (selectedProblemId && problemStatusById[selectedProblemId]) || "not_started";
 
-            {selectedProblem && (
-              <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-800">
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Description
-                </h3>
-                {selectedProblem.pedagogy && (
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-700">
-                    <div className="flex flex-wrap gap-x-3 gap-y-1">
-                      {typeof selectedProblem.pedagogy.learning_goal === "string" &&
-                        selectedProblem.pedagogy.learning_goal.trim() && (
-                          <span>
-                            <span className="font-semibold text-slate-800">Learning goal:</span>{" "}
-                            {selectedProblem.pedagogy.learning_goal.trim()}
-                          </span>
-                        )}
-                      {typeof selectedProblem.pedagogy.scaffold_level === "number" && (
+              const statusBadge =
+                activeStatus === "passed"
+                  ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                  : activeStatus === "failed"
+                  ? "bg-rose-50 text-rose-800 border-rose-200"
+                  : activeStatus === "in_progress"
+                  ? "bg-blue-50 text-blue-800 border-blue-200"
+                  : "bg-slate-100 text-slate-700 border-slate-200";
+
+              const statusLabel =
+                activeStatus === "passed"
+                  ? "Passed"
+                  : activeStatus === "failed"
+                  ? "Failed"
+                  : activeStatus === "in_progress"
+                  ? "In progress"
+                  : "Not started";
+
+              return (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Problem {idx + 1} of {activity.problems.length}
+                    </div>
+                    <h2 className="mt-1 truncate text-sm font-semibold text-slate-900">
+                      {selectedProblem?.title ?? "Problem"}
+                    </h2>
+                    <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      {(selectedProblem?.language ?? "java").toUpperCase()}
+                    </div>
+                  </div>
+                  <span className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold ${statusBadge}`}>
+                    {statusLabel}
+                  </span>
+                </div>
+              );
+            })()}
+
+            <div className="min-h-0 overflow-auto rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-800">
+              {selectedProblem?.pedagogy && (
+                <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-700">
+                  <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    {typeof selectedProblem.pedagogy.learning_goal === "string" &&
+                      selectedProblem.pedagogy.learning_goal.trim() && (
                         <span>
-                          <span className="font-semibold text-slate-800">Scaffold:</span>{" "}
-                          {selectedProblem.pedagogy.scaffold_level}%
+                          <span className="font-semibold text-slate-800">Learning goal:</span>{" "}
+                          {selectedProblem.pedagogy.learning_goal.trim()}
                         </span>
                       )}
+                    {typeof selectedProblem.pedagogy.scaffold_level === "number" && (
+                      <span>
+                        <span className="font-semibold text-slate-800">Scaffold:</span>{" "}
+                        {selectedProblem.pedagogy.scaffold_level}%
+                      </span>
+                    )}
+                    {selectedProblem ? (
                       <span>
                         <span className="font-semibold text-slate-800">TODO regions:</span>{" "}
                         {countStudentTodoMarkers(selectedProblem)}
                       </span>
-                    </div>
+                    ) : null}
                   </div>
-                )}
-                <p className="whitespace-pre-line text-xs text-slate-700">
-                  {selectedProblem.description}
-                </p>
-                {selectedProblem.constraints && (
+                </div>
+              )}
+
+              <h3 className="text-sm font-semibold text-slate-900">Description</h3>
+              <p className="mt-1 whitespace-pre-line text-xs text-slate-700">
+                {selectedProblem?.description ?? ""}
+              </p>
+
+              {selectedProblem?.constraints ? (
+                <>
+                  <h4 className="mt-4 text-xs font-semibold text-slate-900">Constraints</h4>
+                  <p className="mt-1 text-xs text-slate-700">{selectedProblem.constraints}</p>
+                </>
+              ) : null}
+
+              {/* Examples are always shown (even if empty). */}
+              {(() => {
+                const sampleIns = selectedProblem?.sample_inputs || selectedProblem?.sampleInputs || [];
+                const sampleOuts = selectedProblem?.sample_outputs || selectedProblem?.sampleOutputs || [];
+                const count = Math.max(1, sampleIns.length, sampleOuts.length);
+                return (
                   <>
-                    <h4 className="pt-2 text-xs font-semibold text-slate-900">
-                      Constraints
-                    </h4>
-                    <p className="text-xs text-slate-700">
-                      {selectedProblem.constraints}
-                    </p>
+                    <h4 className="mt-4 text-xs font-semibold text-slate-900">Examples</h4>
+                    <div className="mt-2 space-y-3">
+                      {Array.from({ length: count }).map((_, i) => {
+                        const input = typeof sampleIns[i] === "string" ? sampleIns[i]! : "";
+                        const output = typeof sampleOuts[i] === "string" ? sampleOuts[i]! : "";
+                        return (
+                          <div key={i} className="grid gap-2 text-xs sm:grid-cols-2">
+                            <div>
+                              <div className="mb-1 text-[11px] font-semibold text-slate-700">Example {i + 1} input</div>
+                              <pre className="max-h-40 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] text-slate-800">
+                                {input.trim() ? input : "(no example input provided)"}
+                              </pre>
+                            </div>
+                            <div>
+                              <div className="mb-1 text-[11px] font-semibold text-slate-700">Example {i + 1} output</div>
+                              <pre className="max-h-40 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] text-slate-800">
+                                {output.trim() ? output : "(no example output provided)"}
+                              </pre>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </>
-                )}
-                {(() => {
-                  const sampleIns = selectedProblem.sample_inputs || selectedProblem.sampleInputs || [];
-                  const sampleOuts = selectedProblem.sample_outputs || selectedProblem.sampleOutputs || [];
-                  if (sampleIns.length > 0 || sampleOuts.length > 0) {
-                    return (
-                      <div className="grid gap-2 pt-2 text-xs sm:grid-cols-2">
-                        {sampleIns.length > 0 && (
-                          <div>
-                            <h4 className="mb-1 font-semibold text-slate-900">
-                              Sample Input
-                            </h4>
-                            <pre className="max-h-32 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] text-slate-800">
-                              {sampleIns.join("\n")}
-                            </pre>
-                          </div>
-                        )}
-                        {sampleOuts.length > 0 && (
-                          <div>
-                            <h4 className="mb-1 font-semibold text-slate-900">
-                              Sample Output
-                            </h4>
-                            <pre className="max-h-32 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] text-slate-800">
-                              {sampleOuts.join("\n")}
-                            </pre>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
-              </div>
-            )}
+                );
+              })()}
+            </div>
           </section>
 
-		          {/* Middle: editor */}
-		          <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4">
-		            <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
-		              <div className="flex flex-wrap items-center gap-2">
-		                {Object.keys(files).map((filename) => (
-		                  <button
-		                    key={filename}
-		                    onClick={() => setActiveFilename(filename)}
-		                    className={`rounded-full border px-3 py-1 text-xs font-medium shadow-sm transition ${
-		                      activeFilename === filename
-		                        ? "border-blue-500 bg-blue-50 text-blue-800"
-		                        : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
-		                    }`}
-		                  >
-		                    {filename}
-		                  </button>
-		                ))}
-		                <button
-		                  onClick={handleAddFile}
-		                  disabled={!selectedProblem}
-		                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-		                >
-		                  + File
-		                </button>
-		              </div>
-			              <div className="flex gap-2">
-			                <button
-			                  onClick={handleRun}
-			                  disabled={
-                          !selectedProblem ||
-                          running ||
-                          submitting ||
-                          selectedLanguage === "sql" ||
-                          (!canRunMain && selectedLanguage !== "python")
-                        }
-			                  title={
-			                    selectedLanguage === "python"
-			                      ? "Runs main.py (harness) and prints solve(...)"
-			                      : selectedLanguage === "sql"
-			                        ? "SQL uses Run tests"
-			                      : canRunMain
-			                        ? `Runs ${entryFile}`
-			                        : selectedLanguage === "cpp"
-			                          ? `Requires int main(...) in ${entryFile}`
-			                          : `Requires public static void main(String[] args) in ${entryFile}`
-			                  }
-			                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-			                >
-			                  {running ? "Running..." : `Run (${entryFile})`}
-			                </button>
-		                <button
-		                  onClick={handleRunTests}
-		                  disabled={!selectedProblem || submitting || running}
-		                  className="rounded-full bg-blue-500 px-4 py-1 text-xs font-semibold text-white shadow-sm hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-	                >
-	                  {submitting ? "Running..." : "Run tests"}
-	                </button>
-	                <button
-	                  onClick={() => setShowTests((v) => !v)}
-	                  disabled={!selectedProblem || !testSuite}
-	                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-	                >
-	                  {showTests ? "Hide tests" : "View tests"}
-	                </button>
-		              </div>
-		            </div>
-			            {selectedProblem && (selectedLanguage === "java" || selectedLanguage === "cpp") && !canRunMain && (
-			              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-			                No <span className="font-mono">main()</span> entrypoint detected in{" "}
-			                <span className="font-mono">{entryFile}</span>. Use{" "}
-			                <span className="font-semibold">Run tests</span>, or add{" "}
-			                <span className="font-mono">
-			                  {selectedLanguage === "cpp" ? "int main(...)" : "public static void main(String[] args)"}
-			                </span>{" "}
-			                to <span className="font-mono">{entryFile}</span>.
-			              </div>
-			            )}
-	            <div className="h-[70vh] min-h-[520px] max-h-[calc(100vh-220px)] overflow-hidden rounded-xl border border-slate-200 bg-slate-950">
-		              <Editor
-		                height="100%"
-		                language={selectedLanguage}
-		                value={activeCode}
-                    onMount={(editor, monaco) => {
-                      editorRef.current = editor;
-                      monacoRef.current = monaco;
-                      updateTodoDecorations(activeCode);
-                    }}
-	                onChange={(value) => {
-	                  const next = value ?? "";
-	                  if (fileRoles[activeFilename] === "readonly") return;
-	                  setFiles((prev) => ({ ...prev, [activeFilename]: next }));
-	                }}
-	                theme="vs-dark"
-	                options={{
-	                  fontSize: 14,
-	                  minimap: { enabled: false },
-	                  readOnly: isActiveReadonly,
-	                }}
-	              />
-	            </div>
-	          </section>
-
-	          {/* Right: tests / results */}
-	          <section className="flex min-h-0 flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-xs">
-	            <div className="flex items-center justify-between">
-	              <h2 className="text-sm font-semibold text-slate-900">
-	                Feedback
-	              </h2>
-	              {result && "executionTimeMs" in result && (
-	                <span className="rounded-full bg-slate-100 px-3 py-1 font-mono text-[11px] text-slate-700">
-	                  {result.executionTimeMs?.toFixed(0)} ms
-	                </span>
-	              )}
-	            </div>
-	            {showTests && testSuite && (
-	              <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-	                <div className="flex items-center justify-between">
-	                  <h3 className="text-xs font-semibold text-slate-900">
-	                    Test suite ({testCount} {testCount === 1 ? "test" : "tests"})
-	                  </h3>
-	                  <button
-	                    onClick={() => setShowTests(false)}
-	                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
-	                  >
-	                    Hide
-	                  </button>
-	                </div>
-	                <pre className="max-h-56 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] text-slate-800">
-	                  {testSuite}
-	                </pre>
-	              </div>
-	            )}
-			            {!result && (
-			              <p className="text-slate-500">
-			                Use <span className="font-semibold">Run tests</span> to see pass/fail.{" "}
-			                <span className="font-semibold">Run ({entryFile})</span>{" "}
-			                {selectedLanguage === "python"
-			                  ? "runs a small harness that calls solve(...) from solution.py."
-			                  : `runs whatever you put in ${entryFile}.`}
-			              </p>
-			            )}
-	            {result && "success" in result && (
-	              <>
-	                <div className="flex flex-wrap items-center gap-3">
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                      judgeTimedOut
-                        ? "bg-amber-50 text-amber-800"
-                        : result.success
-                        ? "bg-emerald-50 text-emerald-700"
-                        : "bg-rose-50 text-rose-700"
+          {/* Center: work area */}
+          <section className="flex min-h-0 flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
+              <div className="flex flex-wrap items-center gap-2">
+                {Object.keys(files).map((filename) => (
+                  <button
+                    key={filename}
+                    onClick={() => setActiveFilename(filename)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium shadow-sm transition ${
+                      activeFilename === filename
+                        ? "border-blue-500 bg-blue-50 text-blue-800"
+                        : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
                     }`}
                   >
-                    {judgeTimedOut
-                      ? "Test run timed out"
-                      : result.success
-                      ? "All tests passed"
-                      : failedTests.length > 0
-                      ? `${failedTests.length} test${failedTests.length === 1 ? "" : "s"} failing`
-                      : "Test run failed"}
-                  </span>
-                </div>
-                {judgeTimedOut && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
-                    The judge ran out of time. This can happen if your code hangs (infinite loop) or if Docker is slow to start.
-                    You can increase the backend timeout via <span className="font-mono">JUDGE_TIMEOUT_MS</span>.
+                    {filename}
+                  </button>
+                ))}
+                <button
+                  onClick={handleAddFile}
+                  disabled={!selectedProblem}
+                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  + File
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleRun}
+                  disabled={
+                    !selectedProblem ||
+                    running ||
+                    submitting ||
+                    selectedLanguage === "sql" ||
+                    (!canRunMain && selectedLanguage !== "python")
+                  }
+                  title={
+                    selectedLanguage === "python"
+                      ? "Runs main.py (harness) and prints solve(...)"
+                      : selectedLanguage === "sql"
+                        ? "SQL uses Run tests"
+                      : canRunMain
+                        ? `Runs ${entryFile}`
+                        : selectedLanguage === "cpp"
+                          ? `Requires int main(...) in ${entryFile}`
+                          : `Requires public static void main(String[] args) in ${entryFile}`
+                  }
+                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {running ? "Running..." : `Run (${entryFile})`}
+                </button>
+                <button
+                  onClick={handleRunTests}
+                  disabled={!selectedProblem || submitting || running}
+                  className="rounded-full bg-blue-500 px-4 py-1 text-xs font-semibold text-white shadow-sm hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {submitting ? "Running..." : "Run tests"}
+                </button>
+                <button
+                  onClick={() => setShowTests((v) => !v)}
+                  disabled={!selectedProblem || !testSuite}
+                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {showTests ? "Hide tests" : "View tests"}
+                </button>
+              </div>
+            </div>
+
+            {selectedProblem && (selectedLanguage === "java" || selectedLanguage === "cpp") && !canRunMain && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                No <span className="font-mono">main()</span> entrypoint detected in{" "}
+                <span className="font-mono">{entryFile}</span>. Use{" "}
+                <span className="font-semibold">Run tests</span>, or add{" "}
+                <span className="font-mono">
+                  {selectedLanguage === "cpp" ? "int main(...)" : "public static void main(String[] args)"}
+                </span>{" "}
+                to <span className="font-mono">{entryFile}</span>.
+              </div>
+            )}
+
+            <div className="flex-1 min-h-[520px] max-h-[calc(100vh-220px)] overflow-hidden rounded-xl border border-slate-200 bg-slate-950">
+              <Editor
+                height="100%"
+                language={selectedLanguage}
+                value={activeCode}
+                onMount={(editor, monaco) => {
+                  editorRef.current = editor;
+                  monacoRef.current = monaco;
+                  updateTodoDecorations(activeCode);
+                }}
+                onChange={(value) => {
+                  const next = value ?? "";
+                  if (fileRoles[activeFilename] === "readonly") return;
+                  setFiles((prev) => {
+                    const nextFiles = { ...prev, [activeFilename]: next };
+                    filesRef.current = nextFiles;
+                    return nextFiles;
+                  });
+                  const pid = selectedProblemIdRef.current;
+                  if (pid) {
+                    setProblemStatusById((prev) => {
+                      const cur = prev[pid] ?? "not_started";
+                      if (cur === "passed" || cur === "failed" || cur === "not_started") {
+                        return { ...prev, [pid]: "in_progress" };
+                      }
+                      return prev;
+                    });
+                  }
+                }}
+                theme="vs-dark"
+                options={{
+                  fontSize: 14,
+                  minimap: { enabled: false },
+                  readOnly: isActiveReadonly,
+                }}
+              />
+            </div>
+          </section>
+
+          {/* Right: progress + feedback */}
+          <section className="flex min-h-0 flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-xs">
+            {/* Progress (problem list) */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              {(() => {
+                const total = activity.problems.length;
+                const passed = activity.problems.filter((p) => problemStatusById[p.id] === "passed").length;
+                return (
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-slate-900">Progress</h2>
+                    <span className="text-[11px] font-medium text-slate-600">
+                      {passed}/{total} passed
+                    </span>
                   </div>
-                )}
+                );
+              })()}
+              <div className="mt-2 max-h-[34vh] min-h-[160px] overflow-auto pr-1">
                 <div className="space-y-2">
-                  {(() => {
-                    const all = sortTestCaseNames([...passedTests, ...failedTests]);
-
-                    const suite = selectedLanguage === "sql" ? tryParseSqlSuite(testSuite) : null;
-                    const sqlByName = new Map<string, { input: string; expected: string }>();
-                    if (suite) {
-                      for (const c of suite.cases) {
-                        sqlByName.set(c.name, {
-                          input: [`-- schema_sql`, suite.schema_sql.trim(), `\n-- seed_sql`, c.seed_sql.trim()]
-                            .filter(Boolean)
-                            .join("\n"),
-                          expected: formatSqlExpected(c.expected.columns, c.expected.rows),
-                        });
-                      }
-                    }
-
-                    const sqlMismatchBlocks =
-                      selectedLanguage === "sql" ? parseSqlMismatchBlocks(result.stderr || "") : [];
-                    const sqlFailNames = sortTestCaseNames(failedTests);
-                    const sqlExtraByFailName = new Map<string, { actual?: string; message?: string }>();
-                    if (selectedLanguage === "sql" && sqlMismatchBlocks.length > 0) {
-                      for (let i = 0; i < Math.min(sqlFailNames.length, sqlMismatchBlocks.length); i++) {
-                        const name = sqlFailNames[i]!;
-                        const b = sqlMismatchBlocks[i]!;
-                        sqlExtraByFailName.set(name, { actual: b.actual, message: b.message });
-                      }
-                    }
+                  {activity.problems.map((p, i) => {
+                    const status: ProblemStatus = problemStatusById[p.id] ?? "not_started";
+                    const active = selectedProblemId === p.id;
+                    const badge =
+                      status === "passed"
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                        : status === "failed"
+                        ? "bg-rose-50 text-rose-800 border-rose-200"
+                        : status === "in_progress"
+                        ? "bg-blue-50 text-blue-800 border-blue-200"
+                        : "bg-white text-slate-700 border-slate-200";
+                    const label =
+                      status === "passed"
+                        ? "passed"
+                        : status === "failed"
+                        ? "failed"
+                        : status === "in_progress"
+                        ? "in progress"
+                        : "not started";
 
                     return (
-                      <div>
-                        <h3 className="mb-2 text-xs font-semibold text-slate-900">Test cases</h3>
-                        {all.length === 0 && (
-                          <p className="text-xs text-slate-500">
-                            {result.success
-                              ? "None"
-                              : "No tests were reported. Open details/diagnostics — this usually means a compile error, crash, or timeout."}
-                          </p>
-                        )}
-                        <div className="space-y-2">
-                          {all.map((t) => {
-                            const passed = passedTests.includes(t);
-                            const junitInfo = junitFailures[t];
-                            const junitParsed = junitInfo?.message ? parseExpectedActual(junitInfo.message) : null;
-
-                            const suiteInfo = sqlByName.get(t);
-                            const sqlExtra = sqlExtraByFailName.get(t);
-
-                            const fromStructured = result.testCaseDetails?.find((x) => x.name === t);
-
-                            const input = suiteInfo?.input ?? fromStructured?.input;
-                            const expectedOutput = suiteInfo?.expected ?? (junitParsed ? junitParsed.expected : undefined) ?? fromStructured?.expectedOutput;
-                            const actualOutput = sqlExtra?.actual ?? (junitParsed ? junitParsed.actual : undefined) ?? fromStructured?.actualOutput;
-                            const message = junitInfo?.message ?? sqlExtra?.message ?? fromStructured?.message;
-
-                            return (
-                              <details
-                                key={t}
-                                className={`group rounded-lg border p-2 ${
-                                  passed ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"
-                                }`}
-                              >
-                                <summary className="cursor-pointer list-none select-none">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className={`font-semibold ${passed ? "text-emerald-800" : "text-rose-800"}`}>
-                                      {passed ? "✓" : "✗"} {t}
-                                    </div>
-                                    <div className="text-[11px] text-slate-600 group-open:hidden">Show</div>
-                                    <div className="hidden text-[11px] text-slate-600 group-open:block">Hide</div>
-                                  </div>
-                                </summary>
-                                <div className="mt-2 space-y-2">
-                                  <div className="grid gap-2 md:grid-cols-2">
-                                    <div className="rounded border border-slate-200 bg-white p-2">
-                                      <div className="text-[11px] font-semibold text-slate-900">Expected input</div>
-                                      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
-                                        {input || "(not available)"}
-                                      </pre>
-                                    </div>
-                                    <div className="rounded border border-slate-200 bg-white p-2">
-                                      <div className="text-[11px] font-semibold text-slate-900">Your input</div>
-                                      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
-                                        {input || "(not available)"}
-                                      </pre>
-                                    </div>
-                                  </div>
-                                  <div className="grid gap-2 md:grid-cols-2">
-                                    <div className="rounded border border-slate-200 bg-white p-2">
-                                      <div className="text-[11px] font-semibold text-slate-900">Expected output</div>
-                                      <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
-                                        {expectedOutput || "(not available)"}
-                                      </pre>
-                                    </div>
-                                    <div className="rounded border border-slate-200 bg-white p-2">
-                                      <div className="text-[11px] font-semibold text-slate-900">Your output</div>
-                                      <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
-                                        {actualOutput || "(not available)"}
-                                      </pre>
-                                    </div>
-                                  </div>
-                                  {message && (
-                                    <div className="rounded border border-slate-200 bg-white p-2">
-                                      <div className="text-[11px] font-semibold text-slate-900">Notes</div>
-                                      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
-                                        {message}
-                                      </pre>
-                                      {junitInfo?.location && (
-                                        <div className="mt-2 text-[11px] text-slate-600">
-                                          Location: <span className="font-mono">{junitInfo.location}</span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              </details>
-                            );
-                          })}
+                      <button
+                        key={p.id}
+                        onClick={() => selectProblem(p)}
+                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+                          active ? "border-blue-500 bg-white shadow-sm" : "border-slate-200 bg-white hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700">
+                                P{i + 1}
+                              </span>
+                              <span className="truncate text-xs font-semibold text-slate-900">{p.title}</span>
+                            </div>
+                          </div>
+                          <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${badge}`}>
+                            {label}
+                          </span>
                         </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Feedback (persists across problem switching unless cleared) */}
+            <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-slate-900">Feedback</h2>
+                <div className="flex items-center gap-2">
+                  {isJudgeResult(feedbackResult) && (
+                    <span className="rounded-full bg-slate-100 px-3 py-1 font-mono text-[11px] text-slate-700">
+                      {feedbackResult.executionTimeMs?.toFixed(0)} ms
+                    </span>
+                  )}
+                  {feedback ? (
+                    <button
+                      onClick={() => setFeedback(null)}
+                      className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              {feedback ? (
+                <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-700">
+                  {(() => {
+                    const idx = activity.problems.findIndex((p) => p.id === feedback.problemId);
+                    const label = idx >= 0 ? `Problem ${idx + 1}` : "Problem";
+                    const when = new Date(feedback.atIso);
+                    const ts = Number.isFinite(when.getTime()) ? when.toLocaleString() : "";
+                    return (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <span className="font-semibold text-slate-800">Last run:</span>{" "}
+                          {label}
+                          {ts ? <span className="text-slate-500"> • {ts}</span> : null}
+                        </div>
+                        {selectedProblemId && feedback.problemId !== selectedProblemId ? (
+                          <button
+                            onClick={() => {
+                              const p = activity.problems.find((x) => x.id === feedback.problemId);
+                              if (p) selectProblem(p);
+                            }}
+                            className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
+                          >
+                            Go to problem
+                          </button>
+                        ) : null}
                       </div>
                     );
                   })()}
                 </div>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <button
-                      onClick={() => setShowDetails((v) => !v)}
-                      className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
-                    >
-                      {showDetails ? "Hide details" : "Show details"}
-                    </button>
-                    <button
-                      onClick={() => setShowDiagnostics((v) => !v)}
-                      className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
-                    >
-                      {showDiagnostics ? "Hide diagnostics" : "Show diagnostics"}
-                    </button>
-                  </div>
-                  {showDetails && (
-                    <div className="space-y-1 pt-2">
-                      <h3 className="text-xs font-semibold text-slate-900">Test runner output</h3>
-                      <pre className="max-h-[38vh] overflow-auto rounded border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
-                        {stripAnsi(result.stdout || "") || "(empty)"}
-                      </pre>
+              ) : null}
+
+              <div className="mt-3 min-h-0 flex-1 overflow-auto">
+                {showTests && testSuite && (
+                  <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-semibold text-slate-900">
+                        Test suite ({testCount} {testCount === 1 ? "test" : "tests"})
+                      </h3>
+                      <button
+                        onClick={() => setShowTests(false)}
+                        className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
+                      >
+                        Hide
+                      </button>
                     </div>
-                  )}
-                  {showDiagnostics && (
-                    <div className="space-y-1">
-                      <h3 className="text-xs font-semibold text-slate-900">Diagnostics</h3>
-                      {(judgeExitCode != null || judgeTimedOut) && (
-                        <div className="text-[11px] text-slate-600">
-                          {judgeExitCode != null && (
-                            <>
-                              Exit code: <span className="font-mono">{judgeExitCode}</span>
-                            </>
-                          )}
-                          {judgeTimedOut && (
-                            <>
-                              {judgeExitCode != null ? " · " : ""}
-                              Timed out
-                            </>
-                          )}
-                        </div>
-                      )}
-                      <pre className="max-h-[24vh] overflow-auto rounded border border-slate-200 bg-rose-50/60 p-2 font-mono text-[11px] text-rose-800">
-                        {normalizeDiagnostics(result.stderr || "") || "(empty)"}
-                      </pre>
-                    </div>
-                  )}
-	              </>
-	            )}
-            {result && !("success" in result) && (
-              <>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => setShowDetails((v) => !v)}
-                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
-                  >
-                    {showDetails ? "Hide output" : "Show output"}
-                  </button>
-                  <button
-                    onClick={() => setShowDiagnostics((v) => !v)}
-                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
-                  >
-                    {showDiagnostics ? "Hide diagnostics" : "Show diagnostics"}
-                  </button>
-                </div>
-                {showDetails && (
-                  <div className="space-y-1 pt-1">
-                    <h3 className="text-xs font-semibold text-slate-900">Program output</h3>
-                    <pre className="max-h-[38vh] overflow-auto rounded border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
-                      {stripAnsi(result.stdout || "") || "(empty)"}
+                    <pre className="max-h-56 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] text-slate-800">
+                      {testSuite}
                     </pre>
                   </div>
                 )}
-                {showDiagnostics && (
-                  <div className="space-y-1">
-                    <h3 className="text-xs font-semibold text-slate-900">Diagnostics</h3>
-                    <pre className="max-h-[24vh] overflow-auto rounded border border-slate-200 bg-rose-50/60 p-2 font-mono text-[11px] text-rose-800">
-                      {normalizeDiagnostics(result.stderr || "") || "(empty)"}
-                    </pre>
-                  </div>
+
+                {!feedbackResult && (
+                  <p className="text-slate-500">
+                    Use <span className="font-semibold">Run tests</span> to see pass/fail.{" "}
+                    <span className="font-semibold">Run ({entryFile})</span>{" "}
+                    {selectedLanguage === "python"
+                      ? "runs a small harness that calls solve(...) from solution.py."
+                      : `runs whatever you put in ${entryFile}.`}
+                  </p>
                 )}
-              </>
-            )}
-	          </section>
+
+                {isJudgeResult(feedbackResult) && (
+                  <>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          judgeTimedOut
+                            ? "bg-amber-50 text-amber-800"
+                            : feedbackResult.success
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-rose-50 text-rose-700"
+                        }`}
+                      >
+                        {judgeTimedOut
+                          ? "Test run timed out"
+                          : feedbackResult.success
+                          ? "All tests passed"
+                          : failedTests.length > 0
+                          ? `${failedTests.length} test${failedTests.length === 1 ? "" : "s"} failing`
+                          : "Test run failed"}
+                      </span>
+                    </div>
+                    {judgeTimedOut && (
+                      <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                        The judge ran out of time. This can happen if your code hangs (infinite loop) or if Docker is slow to start.
+                        You can increase the backend timeout via <span className="font-mono">JUDGE_TIMEOUT_MS</span>.
+                      </div>
+                    )}
+                    <div className="mt-3 space-y-2">
+                      {(() => {
+                        const judge = feedbackResult;
+                        const all = sortTestCaseNames([...passedTests, ...failedTests]);
+
+                        const suite = selectedLanguage === "sql" ? tryParseSqlSuite(testSuite) : null;
+                        const sqlByName = new Map<string, { input: string; expected: string }>();
+                        if (suite) {
+                          for (const c of suite.cases) {
+                            sqlByName.set(c.name, {
+                              input: [`-- schema_sql`, suite.schema_sql.trim(), `\n-- seed_sql`, c.seed_sql.trim()]
+                                .filter(Boolean)
+                                .join("\n"),
+                              expected: formatSqlExpected(c.expected.columns, c.expected.rows),
+                            });
+                          }
+                        }
+
+                        const sqlMismatchBlocks =
+                          selectedLanguage === "sql" ? parseSqlMismatchBlocks(judge.stderr || "") : [];
+                        const sqlFailNames = sortTestCaseNames(failedTests);
+                        const sqlExtraByFailName = new Map<string, { actual?: string; message?: string }>();
+                        if (selectedLanguage === "sql" && sqlMismatchBlocks.length > 0) {
+                          for (let i = 0; i < Math.min(sqlFailNames.length, sqlMismatchBlocks.length); i++) {
+                            const name = sqlFailNames[i]!;
+                            const b = sqlMismatchBlocks[i]!;
+                            sqlExtraByFailName.set(name, { actual: b.actual, message: b.message });
+                          }
+                        }
+
+                        return (
+                          <div>
+                            <h3 className="mb-2 text-xs font-semibold text-slate-900">Test cases</h3>
+                            {all.length === 0 && (
+                              <p className="text-xs text-slate-500">
+                                {judge.success
+                                  ? "None"
+                                  : "No tests were reported. Open details/diagnostics — this usually means a compile error, crash, or timeout."}
+                              </p>
+                            )}
+                            <div className="space-y-2">
+                              {all.map((t) => {
+                                const passed = passedTests.includes(t);
+                                const junitInfo = junitFailures[t];
+                                const junitParsed = junitInfo?.message ? parseExpectedActual(junitInfo.message) : null;
+
+                                const suiteInfo = sqlByName.get(t);
+                                const sqlExtra = sqlExtraByFailName.get(t);
+
+                                const fromStructured = judge.testCaseDetails?.find((x) => x.name === t);
+
+                                const input = suiteInfo?.input ?? fromStructured?.input;
+                                const expectedOutput =
+                                  suiteInfo?.expected ??
+                                  (junitParsed ? junitParsed.expected : undefined) ??
+                                  fromStructured?.expectedOutput;
+                                const actualOutput =
+                                  sqlExtra?.actual ??
+                                  (junitParsed ? junitParsed.actual : undefined) ??
+                                  fromStructured?.actualOutput;
+                                const message = junitInfo?.message ?? sqlExtra?.message ?? fromStructured?.message;
+
+                                return (
+                                  <details
+                                    key={t}
+                                    className={`group rounded-lg border p-2 ${
+                                      passed ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"
+                                    }`}
+                                  >
+                                    <summary className="cursor-pointer list-none select-none">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className={`font-semibold ${passed ? "text-emerald-800" : "text-rose-800"}`}>
+                                          {passed ? "✓" : "✗"} {t}
+                                        </div>
+                                        <div className="text-[11px] text-slate-600 group-open:hidden">Show</div>
+                                        <div className="hidden text-[11px] text-slate-600 group-open:block">Hide</div>
+                                      </div>
+                                    </summary>
+                                    <div className="mt-2 space-y-2">
+                                      <div className="grid gap-2 md:grid-cols-2">
+                                        <div className="rounded border border-slate-200 bg-white p-2">
+                                          <div className="text-[11px] font-semibold text-slate-900">Expected input</div>
+                                          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                                            {input || "(not available)"}
+                                          </pre>
+                                        </div>
+                                        <div className="rounded border border-slate-200 bg-white p-2">
+                                          <div className="text-[11px] font-semibold text-slate-900">Your input</div>
+                                          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                                            {input || "(not available)"}
+                                          </pre>
+                                        </div>
+                                      </div>
+                                      <div className="grid gap-2 md:grid-cols-2">
+                                        <div className="rounded border border-slate-200 bg-white p-2">
+                                          <div className="text-[11px] font-semibold text-slate-900">Expected output</div>
+                                          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                                            {expectedOutput || "(not available)"}
+                                          </pre>
+                                        </div>
+                                        <div className="rounded border border-slate-200 bg-white p-2">
+                                          <div className="text-[11px] font-semibold text-slate-900">Your output</div>
+                                          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                                            {actualOutput || "(not available)"}
+                                          </pre>
+                                        </div>
+                                      </div>
+                                      {message && (
+                                        <div className="rounded border border-slate-200 bg-white p-2">
+                                          <div className="text-[11px] font-semibold text-slate-900">Notes</div>
+                                          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                                            {message}
+                                          </pre>
+                                          {junitInfo?.location && (
+                                            <div className="mt-2 text-[11px] text-slate-600">
+                                              Location: <span className="font-mono">{junitInfo.location}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </details>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      <button
+                        onClick={() => setShowDetails((v) => !v)}
+                        className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
+                      >
+                        {showDetails ? "Hide details" : "Show details"}
+                      </button>
+                      <button
+                        onClick={() => setShowDiagnostics((v) => !v)}
+                        className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
+                      >
+                        {showDiagnostics ? "Hide diagnostics" : "Show diagnostics"}
+                      </button>
+                    </div>
+                    {showDetails && (
+                      <div className="space-y-1 pt-2">
+                        <h3 className="text-xs font-semibold text-slate-900">Test runner output</h3>
+                        <pre className="max-h-[38vh] overflow-auto rounded border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                          {stripAnsi(feedbackResult.stdout || "") || "(empty)"}
+                        </pre>
+                      </div>
+                    )}
+                    {showDiagnostics && (
+                      <div className="space-y-1">
+                        <h3 className="text-xs font-semibold text-slate-900">Diagnostics</h3>
+                        {(judgeExitCode != null || judgeTimedOut) && (
+                          <div className="text-[11px] text-slate-600">
+                            {judgeExitCode != null && (
+                              <>
+                                Exit code: <span className="font-mono">{judgeExitCode}</span>
+                              </>
+                            )}
+                            {judgeTimedOut && (
+                              <>
+                                {judgeExitCode != null ? " · " : ""}
+                                Timed out
+                              </>
+                            )}
+                          </div>
+                        )}
+                        <pre className="max-h-[24vh] overflow-auto rounded border border-slate-200 bg-rose-50/60 p-2 font-mono text-[11px] text-rose-800">
+                          {normalizeDiagnostics(feedbackResult.stderr || "") || "(empty)"}
+                        </pre>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {feedbackResult && !isJudgeResult(feedbackResult) && (
+                  <>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        onClick={() => setShowDetails((v) => !v)}
+                        className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
+                      >
+                        {showDetails ? "Hide output" : "Show output"}
+                      </button>
+                      <button
+                        onClick={() => setShowDiagnostics((v) => !v)}
+                        className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
+                      >
+                        {showDiagnostics ? "Hide diagnostics" : "Show diagnostics"}
+                      </button>
+                    </div>
+                    {showDetails && (
+                      <div className="space-y-1 pt-2">
+                        <h3 className="text-xs font-semibold text-slate-900">Program output</h3>
+                        <pre className="max-h-[38vh] overflow-auto rounded border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
+                          {stripAnsi(feedbackResult.stdout || "") || "(empty)"}
+                        </pre>
+                      </div>
+                    )}
+                    {showDiagnostics && (
+                      <div className="space-y-1">
+                        <h3 className="text-xs font-semibold text-slate-900">Diagnostics</h3>
+                        <pre className="max-h-[24vh] overflow-auto rounded border border-slate-200 bg-rose-50/60 p-2 font-mono text-[11px] text-rose-800">
+                          {normalizeDiagnostics(feedbackResult.stderr || "") || "(empty)"}
+                        </pre>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </section>
         </main>
       </div>
     </div>
