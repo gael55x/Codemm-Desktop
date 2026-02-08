@@ -96,7 +96,11 @@ export async function runJavaFiles(opts: {
     // Reuse the existing judge image, but override ENTRYPOINT so it doesn't run JUnit.
     const dockerCmd = [
       "docker run --rm",
+      "--network none",
+      "--read-only",
+      "--tmpfs /tmp:rw",
       `-v ${tmp}:/workspace`,
+      "--workdir /workspace",
       "--entrypoint /bin/bash",
       "codem-java-judge",
       `-lc "javac *.java && ${runCmd}"`,
