@@ -14,7 +14,7 @@ This document describes what the desktop wrapper does (and does not do).
 - Starts `apps/frontend` as a child process:
   - dev: `next dev` via npm workspaces
   - standalone: `apps/frontend/.next/standalone/server.js`
-- Waits for frontend readiness by polling a local health route (`/__codemm/health`) and verifying an ephemeral boot token.
+- Waits for frontend readiness by polling a local health route (`/codemm/health`) and verifying an ephemeral boot token.
 - Opens the frontend URL inside an Electron `BrowserWindow`.
 - On app quit, terminates both child processes.
 

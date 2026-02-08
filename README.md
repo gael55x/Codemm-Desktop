@@ -46,7 +46,7 @@ There is no internal HTTP API for engine calls. UI → engine is IPC only.
   - never returned to renderer JS
   - engine is configured in-memory on boot via IPC (API keys are not passed via environment variables)
 - Renderer loading:
-  - UI is served from localhost (transitional) and verified via `GET /__codemm/health` + an ephemeral boot token before the Electron window loads it (mitigates localhost port hijacking).
+  - UI is served from localhost (transitional) and verified via `GET /codemm/health` + an ephemeral boot token before the Electron window loads it (mitigates localhost port hijacking).
 
 ## No API Key? Use Ollama (Local Model)
 

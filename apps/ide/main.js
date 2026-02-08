@@ -248,7 +248,7 @@ function waitForHttpOk(url, { timeoutMs = 120_000, intervalMs = 500 } = {}) {
 }
 
 function waitForFrontendReady(frontendUrl, { token, timeoutMs = 180_000, intervalMs = 500 } = {}) {
-  const healthUrl = `${frontendUrl}/__codemm/health`;
+  const healthUrl = `${frontendUrl}/codemm/health`;
   const deadline = Date.now() + timeoutMs;
   let lastLogAt = 0;
 
@@ -1563,7 +1563,7 @@ async function createWindowAndBoot() {
     }
   });
 
-  console.log(`[ide] Waiting for frontend health: ${frontendUrl}/__codemm/health`);
+  console.log(`[ide] Waiting for frontend health: ${frontendUrl}/codemm/health`);
   const frontendReady = await waitForFrontendReady(frontendUrl, { token: frontendToken, timeoutMs: 180_000 });
   if (!frontendReady) {
     dialog.showErrorBox(

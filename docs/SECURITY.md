@@ -48,7 +48,7 @@ Threat:
 
 Mitigation (current):
 
-- Electron main verifies it is talking to the frontend server it started by polling `GET /__codemm/health` and checking an ephemeral token set via `CODEMM_FRONTEND_TOKEN`.
+- Electron main verifies it is talking to the frontend server it started by polling `GET /codemm/health` and checking an ephemeral token set via `CODEMM_FRONTEND_TOKEN`.
 
 Target (final):
 
