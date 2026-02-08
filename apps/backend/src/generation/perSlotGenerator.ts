@@ -20,6 +20,7 @@ import { coerceSqlTestSuiteToJsonString } from "../languages/sql/rules";
 const CODEX_MODEL = process.env.CODEX_MODEL;
 const MAX_TOKENS = 5000;
 const TEMPERATURE = 0.3;
+const REPAIR_TEMPERATURE = 0.4;
 
 type ProblemStyle = "stdout" | "return" | "mixed";
 function normalizeProblemStyle(raw: string): ProblemStyle {
@@ -90,6 +91,118 @@ function sanitizeJavaStringLiteralsBoundaryWhitespace(testSuite: string): { test
     return `"${trimmed}"`;
   });
   return { testSuite: out, changed };
+}
+
+function summarizeJUnitFailures(output: string): string[] {
+  const text = String(output ?? "");
+  const lines = text.split(/\r?\n/);
+  const out: string[] = [];
+
+  for (const line of lines) {
+    const m =
+      /^\|\s+.*--\s+([A-Za-z0-9_]+)\([^)]*\)\s+\[X\].*expected:\s*<([^>]*)>\s*but was:\s*<([^>]*)>/i.exec(line) ||
+      /^\s*=>.*expected:\s*<([^>]*)>\s*but was:\s*<([^>]*)>/i.exec(line);
+    if (!m) continue;
+    if (m.length === 4) {
+      out.push(`${m[1]}: expected "${m[2]}", got "${m[3]}"`);
+    } else if (m.length === 3) {
+      out.push(`expected "${m[1]}", got "${m[2]}"`);
+    }
+    if (out.length >= 10) break;
+  }
+
+  // Also surface failing test names even if no expected/actual is shown in-line.
+  if (out.length === 0) {
+    for (const line of lines) {
+      const name = /^\|\s+.*--\s+([A-Za-z0-9_]+)\([^)]*\)\s+\[X\]/.exec(line)?.[1];
+      if (name) out.push(`${name}: failed`);
+      if (out.length >= 10) break;
+    }
+  }
+
+  return out;
+}
+
+async function repairJavaReferenceSolution(args: {
+  slot: ProblemSlot;
+  draft: Extract<GeneratedProblemDraft, { language: "java"; reference_solution: string }>;
+  errorMessage: string;
+  judgeStdout?: string;
+  judgeStderr?: string;
+  ctx?: SlotPromptContext;
+}): Promise<{ reference_solution: string; llmOutputHash: string }> {
+  const title = args.draft.title;
+  const failures = summarizeJUnitFailures(`${args.judgeStdout ?? ""}\n${args.judgeStderr ?? ""}`);
+
+  const system = `
+You are Codemm's Java reference solution repairer.
+
+Your job:
+- Fix ONLY the hidden reference_solution so it passes the provided JUnit test_suite.
+- Do NOT change the test_suite.
+- Do NOT change the problem description/constraints.
+
+Hard rules:
+- Java 17, no package declarations.
+- reference_solution must declare at most ONE top-level public type.
+- Return ONLY valid JSON (no markdown/no prose) with this exact schema:
+  { "reference_solution": "..." }
+- Encode newlines as "\\n" (single backslash).
+`;
+
+  const stdoutSnippet = String(args.judgeStdout ?? "").slice(0, 2400);
+  const stderrSnippet = String(args.judgeStderr ?? "").slice(0, 2400);
+  const errorMessage = String(args.errorMessage ?? "").slice(0, 800);
+  const failureSummary = failures.length ? `\nFailing assertions summary:\n- ${failures.join("\n- ")}\n` : "";
+
+  const user = `
+Title: ${title}
+Difficulty: ${args.slot.difficulty}
+Topics: ${args.slot.topics.join(", ")}
+Problem style: ${args.slot.problem_style}
+Constraints: ${args.draft.constraints}
+${args.ctx?.domain ? `Scenario seed: ${args.ctx.domain}\n` : ""}${args.ctx?.avoidDomains?.length ? `Avoid repeating domains: ${args.ctx.avoidDomains.join(", ")}\n` : ""}${args.ctx?.avoidTitles?.length ? `Avoid reusing titles too similar to: ${args.ctx.avoidTitles.join(" | ")}\n` : ""}
+
+Description:
+${args.draft.description}
+
+Starter code (student-facing; keep semantics consistent):
+${args.draft.starter_code}
+
+JUnit test_suite (DO NOT CHANGE):
+${args.draft.test_suite}
+${failureSummary}
+
+Last failure reason:
+${errorMessage}
+
+Docker/JUnit output (may be truncated):
+STDOUT:
+${stdoutSnippet || "(empty)"}
+
+STDERR:
+${stderrSnippet || "(empty)"}
+
+Previous reference_solution (you must change it to make tests pass):
+${args.draft.reference_solution}
+
+Return JSON: {"reference_solution":"..."} only.
+`;
+
+  const completion = await createCodemmCompletion({
+    system,
+    user,
+    ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
+    temperature: REPAIR_TEMPERATURE,
+    maxTokens: MAX_TOKENS,
+  });
+
+  const text = completion.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
+  const llmOutputHash = sha256(text);
+  const parsed = tryParseJson(text) as any;
+  const repaired = typeof parsed?.reference_solution === "string" ? parsed.reference_solution.trim() : "";
+  if (!repaired) throw new Error("Java reference_solution repair failed: missing reference_solution.");
+  return { reference_solution: repaired, llmOutputHash };
 }
 
 export type RepairContext = {
@@ -590,6 +703,33 @@ export async function generateSingleProblem(
   slot: ProblemSlot,
   opts?: { repair?: RepairContext; promptContext?: SlotPromptContext }
 ): Promise<GeneratedDraftWithMeta> {
+  // Validation-time repair: if Docker/JUnit rejected the reference artifact, don't regenerate the entire
+  // problem JSON. Repair the reference artifact directly (smaller search space => fewer non-healing loops).
+  if (slot.language === "java" && opts?.repair?.previousDraft && "reference_solution" in opts.repair.previousDraft) {
+    const prev = opts.repair.previousDraft as Extract<
+      GeneratedProblemDraft,
+      { language: "java"; reference_solution: string }
+    >;
+    const { reference_solution, llmOutputHash } = await repairJavaReferenceSolution({
+      slot,
+      draft: prev,
+      errorMessage: opts.repair.errorMessage ?? "reference solution failed Docker validation",
+      ...(typeof opts.repair.judgeStdout === "string" ? { judgeStdout: opts.repair.judgeStdout } : {}),
+      ...(typeof opts.repair.judgeStderr === "string" ? { judgeStderr: opts.repair.judgeStderr } : {}),
+      ...(typeof opts.promptContext !== "undefined" ? { ctx: opts.promptContext } : {}),
+    });
+    if (reference_solution.trim() === prev.reference_solution.trim()) {
+      throw new Error("Java reference_solution repair made no changes.");
+    }
+    const nextDraft: GeneratedProblemDraft = { ...prev, reference_solution };
+    const result = GeneratedProblemDraftSchema.safeParse(nextDraft);
+    if (!result.success) {
+      const first = result.error.issues[0];
+      throw new Error(`Java reference_solution repair produced invalid draft: ${first?.message ?? "unknown error"}`);
+    }
+    return { draft: result.data, meta: { llmOutputHash } };
+  }
+
   const prompt = opts?.repair
     ? buildRepairPrompt(slot, opts.repair, opts.promptContext)
     : buildSlotPromptWithContext(slot, opts?.promptContext);
@@ -600,7 +740,7 @@ export async function generateSingleProblem(
     system: getSystemPromptForSlot(slot),
     user: prompt,
     ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
-    temperature: TEMPERATURE,
+    temperature: opts?.repair ? REPAIR_TEMPERATURE : TEMPERATURE,
     maxTokens: MAX_TOKENS,
   });
 
