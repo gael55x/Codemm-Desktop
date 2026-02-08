@@ -89,7 +89,10 @@ contextBridge.exposeInMainWorld("codemm", {
     getStatus: (args) => ipcRenderer.invoke("codemm:ollama:getStatus", args),
     openInstall: async () => {
       try {
-        return await ipcRenderer.invoke("codemm:ollama:openInstall");
+        // Use fire-and-forget so the renderer doesn't depend on an `ipcMain.handle(...)` being registered.
+        // (We also register a handler in Electron main; this is just extra robustness.)
+        ipcRenderer.send("codemm:ollama:openInstall");
+        return { ok: true };
       } catch (e) {
         return { ok: false, error: e?.message ? String(e.message) : "Failed to open install link." };
       }

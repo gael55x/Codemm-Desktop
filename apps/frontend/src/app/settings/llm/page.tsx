@@ -270,32 +270,36 @@ export default function LlmSettingsPage() {
                         <button
                           className={`rounded-lg px-3 py-2 text-xs font-semibold ${
                             darkMode ? "bg-slate-800 hover:bg-slate-700" : "bg-slate-100 hover:bg-slate-200"
-                          }`}
-                          onClick={async () => {
-                            setError(null);
-                            try {
-                              const ollama = (window as any)?.codemm?.ollama;
-                              if (ollama?.openInstall) {
-                                const res = await ollama.openInstall();
-                                if (res && typeof res === "object" && (res as any).ok === false) {
-                                  throw new Error(String((res as any).error || "Failed to open install link."));
-                                }
-                                return;
-                              }
-                            } catch {
-                              // Fallback: open from the renderer (Electron will route to the OS browser).
-                              try {
-                                window.open("https://ollama.com/download", "_blank", "noopener,noreferrer");
-                                return;
-                              } catch (e: any) {
-                                setError(e?.message || "Failed to open install link.");
-                              }
-                            }
-                          }}
-                          disabled={saving}
-                        >
-                          Install Ollama
-                        </button>
+	                          }`}
+	                          onClick={async () => {
+	                            setError(null);
+	                            const openDownload = () => {
+	                              window.open("https://ollama.com/download", "_blank", "noopener,noreferrer");
+	                            };
+
+	                            try {
+	                              const ollama = (window as any)?.codemm?.ollama;
+	                              if (ollama?.openInstall) {
+	                                const res = await ollama.openInstall();
+	                                if (!res || typeof res !== "object" || (res as any).ok !== false) {
+	                                  return;
+	                                }
+	                              }
+	                            } catch {
+	                              // fall through
+	                            }
+
+	                            // Fallback: open from the renderer (Electron will route to the OS browser).
+	                            try {
+	                              openDownload();
+	                            } catch (e: any) {
+	                              setError(e?.message || "Failed to open install link.");
+	                            }
+	                          }}
+	                          disabled={saving}
+	                        >
+	                          Install Ollama
+	                        </button>
                       </div>
 
                       <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${darkMode ? "border-slate-800 bg-slate-950 text-slate-300" : "border-slate-200 bg-white text-slate-600"}`}>

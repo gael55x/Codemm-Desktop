@@ -29,10 +29,22 @@ function tryRegisterIpcHandler(channel, handler) {
   }
 }
 
+function tryRegisterIpcListener(channel, listener) {
+  try {
+    if (ipcMain.listenerCount(channel) > 0) return;
+    ipcMain.on(channel, listener);
+  } catch {
+    // ignore
+  }
+}
+
 // Register a small set of handlers early so UI actions don't depend on the workspace boot path.
 tryRegisterIpcHandler("codemm:ollama:openInstall", async () => {
   await shell.openExternal("https://ollama.com/download");
   return { ok: true };
+});
+tryRegisterIpcListener("codemm:ollama:openInstall", () => {
+  shell.openExternal("https://ollama.com/download").catch(() => {});
 });
 
 function sleep(ms) {
