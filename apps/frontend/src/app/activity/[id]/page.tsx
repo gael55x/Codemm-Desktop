@@ -950,6 +950,7 @@ export default function ActivityPage() {
       return;
     }
     if (Object.prototype.hasOwnProperty.call(files, name)) {
+      activeFilenameRef.current = name;
       setActiveFilename(name);
       return;
     }
@@ -962,8 +963,17 @@ export default function ActivityPage() {
           ? `#include <bits/stdc++.h>\n\n`
           : `#pragma once\n\n`
         : `public class ${className} {\n\n}\n`;
-    setFiles((prev) => ({ ...prev, [name]: skeleton }));
-    setFileRoles((prev) => ({ ...prev, [name]: "support" }));
+    setFiles((prev) => {
+      const nextFiles = { ...prev, [name]: skeleton };
+      filesRef.current = nextFiles;
+      return nextFiles;
+    });
+    setFileRoles((prev) => {
+      const nextRoles: Record<string, FileRole> = { ...prev, [name]: "support" as FileRole };
+      fileRolesRef.current = nextRoles;
+      return nextRoles;
+    });
+    activeFilenameRef.current = name;
     setActiveFilename(name);
   }
 
@@ -1177,7 +1187,10 @@ export default function ActivityPage() {
                 {Object.keys(files).map((filename) => (
                   <button
                     key={filename}
-                    onClick={() => setActiveFilename(filename)}
+                    onClick={() => {
+                      activeFilenameRef.current = filename;
+                      setActiveFilename(filename);
+                    }}
                     className={`rounded-full border px-3 py-1 text-xs font-medium shadow-sm transition ${
                       activeFilename === filename
                         ? "border-blue-500 bg-blue-50 text-blue-800"
