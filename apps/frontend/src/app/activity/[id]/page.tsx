@@ -370,6 +370,9 @@ export default function ActivityPage() {
   const [addFileName, setAddFileName] = useState("");
   const [addFileError, setAddFileError] = useState<string | null>(null);
   const addFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [deleteFileOpen, setDeleteFileOpen] = useState(false);
+  const [deleteFileName, setDeleteFileName] = useState<string>("");
+  const [deleteFileError, setDeleteFileError] = useState<string | null>(null);
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const todoDecorationsRef = useRef<string[]>([]);
@@ -411,6 +414,7 @@ export default function ActivityPage() {
   const fileRolesRef = useRef<Record<string, FileRole>>(fileRoles);
   const activeFilenameRef = useRef<string>(activeFilename);
   const entrypointClassRef = useRef<string>(entrypointClass);
+  const userCreatedFilesByProblemIdRef = useRef<Record<string, Set<string>>>({});
 
   useEffect(() => {
     selectedProblemIdRef.current = selectedProblemId;
@@ -486,7 +490,17 @@ export default function ActivityPage() {
     setAddFileOpen(false);
     setAddFileName("");
     setAddFileError(null);
+    setDeleteFileOpen(false);
+    setDeleteFileName("");
+    setDeleteFileError(null);
   }, [selectedProblemId]);
+
+  function ensureUserCreatedSet(problemId: string) {
+    if (!userCreatedFilesByProblemIdRef.current[problemId]) {
+      userCreatedFilesByProblemIdRef.current[problemId] = new Set<string>();
+    }
+    return userCreatedFilesByProblemIdRef.current[problemId]!;
+  }
 
   function getLayoutMetrics() {
     const containerWidth = layoutRef.current?.getBoundingClientRect().width ?? window.innerWidth;
@@ -794,15 +808,16 @@ export default function ActivityPage() {
 
   useEffect(() => {
 
-    async function load() {
-      try {
-        setLoadError(null);
-        // Reset per-activity in-memory state.
-        workspacesRef.current = {};
-        setFeedback(null);
-        setShowTests(false);
-        setShowDetails(false);
-        setShowDiagnostics(false);
+	    async function load() {
+	      try {
+	        setLoadError(null);
+	        // Reset per-activity in-memory state.
+	        workspacesRef.current = {};
+	        userCreatedFilesByProblemIdRef.current = {};
+	        setFeedback(null);
+	        setShowTests(false);
+	        setShowDetails(false);
+	        setShowDiagnostics(false);
         const data = await requireActivitiesApi().get({ id: activityId });
         const act = data?.activity as Activity | undefined;
         if (!act) {
@@ -1121,6 +1136,8 @@ export default function ActivityPage() {
     });
     activeFilenameRef.current = name;
     setActiveFilename(name);
+    const pid = selectedProblemIdRef.current;
+    if (pid) ensureUserCreatedSet(pid).add(name);
     return { ok: true };
   }
 
@@ -1144,6 +1161,76 @@ export default function ActivityPage() {
       return;
     }
     setAddFileError(res.error);
+  }
+
+  function isFileDeletable(filename: string): boolean {
+    const pid = selectedProblemIdRef.current;
+    if (!pid) return false;
+    const role = fileRolesRef.current[filename];
+    if (role === "entry" || role === "readonly") return false;
+    const set = ensureUserCreatedSet(pid);
+    return set.has(filename);
+  }
+
+  function openDeleteFile(filename: string) {
+    if (!isFileDeletable(filename)) return;
+    setDeleteFileError(null);
+    setDeleteFileName(filename);
+    setDeleteFileOpen(true);
+  }
+
+  function commitDeleteFile() {
+    const pid = selectedProblemIdRef.current;
+    const name = deleteFileName.trim();
+    if (!pid || !name) {
+      setDeleteFileError("Nothing to delete.");
+      return;
+    }
+    if (!isFileDeletable(name)) {
+      setDeleteFileError("You can only delete files you created for this problem.");
+      return;
+    }
+
+    // Compute next state synchronously so activeFilename and refs stay consistent.
+    const prevFiles = filesRef.current;
+    const prevRoles = fileRolesRef.current;
+    if (!Object.prototype.hasOwnProperty.call(prevFiles, name)) {
+      setDeleteFileOpen(false);
+      setDeleteFileName("");
+      setDeleteFileError(null);
+      return;
+    }
+
+    const nextFiles: CodeFiles = { ...prevFiles };
+    delete nextFiles[name];
+    const nextRoles: Record<string, FileRole> = { ...prevRoles };
+    delete nextRoles[name];
+
+    filesRef.current = nextFiles;
+    fileRolesRef.current = nextRoles;
+    setFiles(nextFiles);
+    setFileRoles(nextRoles);
+
+    // Pick a safe next active filename if we deleted the current one.
+    const remaining = Object.keys(nextFiles);
+    const currentActive = activeFilenameRef.current;
+    let nextActive = currentActive;
+    if (!Object.prototype.hasOwnProperty.call(nextFiles, currentActive)) {
+      nextActive =
+        remaining.find((f) => nextRoles[f] === "support") ??
+        remaining.find((f) => nextRoles[f] === "entry") ??
+        remaining[0] ??
+        "";
+    }
+    if (nextActive) {
+      activeFilenameRef.current = nextActive;
+      setActiveFilename(nextActive);
+    }
+
+    ensureUserCreatedSet(pid).delete(name);
+    setDeleteFileOpen(false);
+    setDeleteFileName("");
+    setDeleteFileError(null);
   }
 
   if (loading) {
@@ -1176,7 +1263,7 @@ export default function ActivityPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white text-slate-900">
+    <div className="h-screen w-full overflow-hidden bg-white text-slate-900">
       <style jsx global>{`
         .codem-student-todo-bg {
           background: rgba(250, 204, 21, 0.12);
@@ -1185,9 +1272,9 @@ export default function ActivityPage() {
           border-left: 3px solid rgba(250, 204, 21, 0.9);
         }
       `}</style>
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6">
+      <div className="flex h-screen w-full flex-col gap-2 px-2 py-2">
         {/* Header */}
-        <header className="mb-4 flex items-center justify-between border-b border-slate-200 pb-4">
+        <header className="flex items-center justify-between border-b border-slate-200 pb-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Activity
@@ -1228,7 +1315,7 @@ export default function ActivityPage() {
         </header>
 
 	        {/* Main layout */}
-	        <main ref={layoutRef} className="flex flex-1 min-h-0">
+	        <main ref={layoutRef} className="flex flex-1 min-h-0 gap-0">
 	          {/* Left: context only (active problem) */}
 	          <section
 	            className="flex min-h-0 flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
@@ -1324,6 +1411,11 @@ export default function ActivityPage() {
                 return (
                   <>
                     <h4 className="mt-4 text-xs font-semibold text-slate-900">Examples</h4>
+                    {sampleIns.length === 0 && sampleOuts.length === 0 ? (
+                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                        This activity’s problems were generated without examples. New activities include examples by default.
+                      </div>
+                    ) : null}
                     <div className="mt-2 space-y-3">
                       {Array.from({ length: count }).map((_, i) => {
                         const input = typeof sampleIns[i] === "string" ? sampleIns[i]! : "";
@@ -1374,23 +1466,43 @@ export default function ActivityPage() {
 	          {/* Center: work area */}
 	          <section className="flex min-h-0 min-w-[520px] flex-1 flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4">
 	            <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
-	              <div className="flex flex-wrap items-center gap-2">
-	                {Object.keys(files).map((filename) => (
-                  <button
-                    key={filename}
-                    onClick={() => {
-                      activeFilenameRef.current = filename;
-                      setActiveFilename(filename);
-                    }}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium shadow-sm transition ${
-                      activeFilename === filename
-                        ? "border-blue-500 bg-blue-50 text-blue-800"
-                        : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
-                    }`}
-                  >
-                    {filename}
-                  </button>
-                ))}
+		              <div className="flex flex-wrap items-center gap-2">
+		                {Object.keys(files).map((filename) => {
+		                  const active = activeFilename === filename;
+		                  const deletable = isFileDeletable(filename);
+		                  return (
+		                    <div key={filename} className="group relative">
+		                      <button
+		                        type="button"
+		                        onClick={() => {
+		                          activeFilenameRef.current = filename;
+		                          setActiveFilename(filename);
+		                        }}
+		                        className={`rounded-full border px-3 py-1 ${deletable ? "pr-7" : ""} text-xs font-medium shadow-sm transition ${
+		                          active
+		                            ? "border-blue-500 bg-blue-50 text-blue-800"
+		                            : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
+		                        }`}
+		                      >
+		                        {filename}
+		                      </button>
+		                      {deletable ? (
+		                        <button
+		                          type="button"
+		                          title="Delete file"
+		                          className="absolute right-1 top-1/2 hidden h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-500 hover:bg-slate-50 group-hover:flex"
+		                          onClick={(e) => {
+		                            e.preventDefault();
+		                            e.stopPropagation();
+		                            openDeleteFile(filename);
+		                          }}
+		                        >
+		                          ×
+		                        </button>
+		                      ) : null}
+		                    </div>
+		                  );
+		                })}
 	                <button
 	                  onClick={handleAddFile}
 	                  disabled={!selectedProblem}
@@ -1994,6 +2106,63 @@ export default function ActivityPage() {
                   onClick={handleConfirmAddFile}
                 >
                   Create file
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {deleteFileOpen ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="codemm-delete-file-title"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) {
+                setDeleteFileOpen(false);
+                setDeleteFileName("");
+                setDeleteFileError(null);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setDeleteFileOpen(false);
+                setDeleteFileName("");
+                setDeleteFileError(null);
+              }
+            }}
+          >
+            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+              <div id="codemm-delete-file-title" className="text-sm font-semibold text-slate-900">
+                Delete file
+              </div>
+              <div className="mt-2 text-xs text-slate-600">
+                Delete <span className="font-mono">{deleteFileName}</span> from this problem?
+              </div>
+              {deleteFileError ? (
+                <div className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                  {deleteFileError}
+                </div>
+              ) : null}
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={() => {
+                    setDeleteFileOpen(false);
+                    setDeleteFileName("");
+                    setDeleteFileError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-rose-700"
+                  onClick={commitDeleteFile}
+                >
+                  Delete
                 </button>
               </div>
             </div>
