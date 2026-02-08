@@ -648,7 +648,7 @@ function startEngineIpc({ backendDir, env, onEvent }) {
       if (!p) return;
       pending.delete(id);
       p.reject(new Error(`Engine RPC timed out for method "${method}".`));
-    }, 120_000);
+    }, 10 * 60_000);
 
     const p = new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject, timeout });

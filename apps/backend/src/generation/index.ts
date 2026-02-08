@@ -65,7 +65,7 @@ export async function generateProblemsFromPlan(
 
   const problems: GeneratedProblem[] = initialCount ? [...resumeProblems.slice(0, initialCount)] : [];
   const outcomes: GenerationOutcome[] = initialCount ? [...resumeOutcomes.slice(0, initialCount)] : [];
-  const defaultMaxAttempts = 3;
+  const defaultMaxAttempts = 5;
   const onProgress = opts?.onProgress;
   const onCheckpoint = opts?.onCheckpoint;
   const generateSingleProblemFn = opts?.deps?.generateSingleProblem ?? generateSingleProblem;
