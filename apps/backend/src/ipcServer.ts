@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { initializeDatabase, activityDb, sessionDb, sessionMessageDb, submissionDb } from "./database";
+import { initializeDatabase, activityDb, runDb, runEventDb, submissionDb, threadDb, threadMessageDb } from "./database";
 import type { LearningMode } from "./contracts/learningMode";
 import { createSession, generateFromSession, getSession, processSessionMessage } from "./services/sessionService";
 import { ActivityLanguageSchema } from "./contracts/activitySpec";
@@ -82,6 +82,14 @@ function makeSubId(): string {
   return crypto.randomUUID();
 }
 
+function safeJsonStringify(x: unknown): string {
+  try {
+    return JSON.stringify(x);
+  } catch {
+    return JSON.stringify({ error: "unserializable" });
+  }
+}
+
 async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
   if (method === "engine.ping") {
     return { ok: true };
@@ -92,7 +100,7 @@ async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
     const learning_mode = (params.learning_mode ?? null) as LearningMode | null;
     const created = createSession(learning_mode ?? undefined);
     const promptText = defaultAssistantPrompt();
-    sessionMessageDb.create(crypto.randomUUID(), created.sessionId, "assistant", promptText);
+    threadMessageDb.create(crypto.randomUUID(), created.sessionId, "assistant", promptText);
     return {
       threadId: created.sessionId,
       state: created.state,
@@ -107,7 +115,7 @@ async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
   if (method === "threads.list") {
     const params = requireParams(paramsRaw);
     const limit = getNumber(params.limit) ?? 20;
-    const threads = sessionDb.listSummaries(limit);
+    const threads = threadDb.listSummaries(limit);
     return { threads };
   }
 
@@ -148,13 +156,30 @@ async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
     getSession(threadId);
 
     const subId = makeSubId();
-    const buffered = getGenerationProgressBuffer(threadId);
+    const latest = runDb.latestByThread(threadId, "generation");
+    const buffered = (() => {
+      if (latest && typeof latest.id === "string" && latest.id) {
+        const rows = runEventDb.listByRun(latest.id, 1500);
+        const events: GenerationProgressEvent[] = [];
+        for (const r of rows) {
+          if (r.type !== "progress") continue;
+          try {
+            const parsed = JSON.parse(r.payload_json) as GenerationProgressEvent;
+            if (parsed && typeof (parsed as any).type === "string") events.push(parsed);
+          } catch {
+            // ignore
+          }
+        }
+        if (events.length > 0) return events;
+      }
+      return getGenerationProgressBuffer(threadId);
+    })();
     const unsubscribe = subscribeGenerationProgress(threadId, (ev: GenerationProgressEvent) => {
       send({ type: "event", topic: "threads.generation", payload: { subId, event: ev } });
     });
     generationSubs.set(subId, { threadId, unsubscribe });
 
-    return { subId, buffered };
+    return { subId, buffered, ...(latest && typeof latest.id === "string" ? { runId: latest.id } : {}) };
   }
 
   if (method === "threads.unsubscribeGeneration") {
@@ -176,8 +201,44 @@ async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
     const params = requireParams(paramsRaw);
     const threadId = getString(params.threadId);
     if (!threadId) throw new Error("threadId is required.");
-    const { activityId, problems } = await generateFromSession(threadId);
-    return { activityId, problemCount: problems.length };
+    const runId = crypto.randomUUID();
+    runDb.create(runId, "generation", { threadId, metaJson: safeJsonStringify({ threadId }) });
+
+    let seq = 0;
+    const unsubPersist = subscribeGenerationProgress(threadId, (ev: GenerationProgressEvent) => {
+      seq += 1;
+      try {
+        runEventDb.append(runId, seq, "progress", safeJsonStringify(ev));
+      } catch {
+        // ignore persistence failures; stream must still work
+      }
+    });
+
+    try {
+      const { activityId, problems } = await generateFromSession(threadId);
+      runDb.finish(runId, "succeeded");
+      return { activityId, problemCount: problems.length, runId };
+    } catch (err) {
+      try {
+        seq += 1;
+        runEventDb.append(
+          runId,
+          seq,
+          "error",
+          safeJsonStringify({ message: err instanceof Error ? err.message : String(err) })
+        );
+      } catch {
+        // ignore
+      }
+      runDb.finish(runId, "failed");
+      throw err;
+    } finally {
+      try {
+        unsubPersist();
+      } catch {
+        // ignore
+      }
+    }
   }
 
   if (method === "activities.get") {
@@ -321,6 +382,15 @@ async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
       safeStdin = stdin;
     }
 
+    const runId = crypto.randomUUID();
+    runDb.create(runId, "judge.run", {
+      threadId: null,
+      metaJson: safeJsonStringify({
+        language: lang,
+        kind: files && typeof files === "object" ? "files" : "code",
+      }),
+    });
+
     if (files && typeof files === "object") {
       const entries = Object.entries(files as Record<string, unknown>);
       if (entries.length === 0) throw new Error("files must be a non-empty object.");
@@ -364,7 +434,13 @@ async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
       if (typeof safeStdin === "string") execReq.stdin = safeStdin;
 
       const result = await profile.executionAdapter.run(execReq);
-      return { stdout: result.stdout, stderr: result.stderr };
+      try {
+        runEventDb.append(runId, 1, "result", safeJsonStringify({ stdout: result.stdout, stderr: result.stderr }));
+        runDb.finish(runId, "succeeded");
+      } catch {
+        // ignore
+      }
+      return { stdout: result.stdout, stderr: result.stderr, runId };
     }
 
     if (typeof code !== "string" || !code.trim()) {
@@ -376,7 +452,13 @@ async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
     const execReq: { kind: "code"; code: string; stdin?: string } = { kind: "code", code };
     if (typeof safeStdin === "string") execReq.stdin = safeStdin;
     const result = await profile.executionAdapter.run(execReq);
-    return { stdout: result.stdout, stderr: result.stderr };
+    try {
+      runEventDb.append(runId, 1, "result", safeJsonStringify({ stdout: result.stdout, stderr: result.stderr }));
+      runDb.finish(runId, "succeeded");
+    } catch {
+      // ignore
+    }
+    return { stdout: result.stdout, stderr: result.stderr, runId };
   }
 
   if (method === "judge.submit") {
@@ -404,6 +486,17 @@ async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
           : lang === "sql"
             ? /^[A-Za-z_][A-Za-z0-9_]*\.sql$/
             : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
+
+    const runId = crypto.randomUUID();
+    runDb.create(runId, "judge.submit", {
+      threadId: null,
+      metaJson: safeJsonStringify({
+        language: lang,
+        kind: files && typeof files === "object" ? "files" : "code",
+        activityId: typeof activityId === "string" ? activityId : null,
+        problemId: typeof problemId === "string" ? problemId : null,
+      }),
+    });
 
     let result: any;
     let codeForPersistence: string | null = null;
@@ -487,7 +580,26 @@ async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
       }
     }
 
-    return result;
+    try {
+      runEventDb.append(
+        runId,
+        1,
+        "result",
+        safeJsonStringify({
+          success: Boolean(result?.success),
+          passedTests: Array.isArray(result?.passedTests) ? result.passedTests : [],
+          failedTests: Array.isArray(result?.failedTests) ? result.failedTests : [],
+          executionTimeMs: typeof result?.executionTimeMs === "number" ? result.executionTimeMs : null,
+          timedOut: typeof result?.timedOut === "boolean" ? result.timedOut : null,
+          exitCode: typeof result?.exitCode === "number" ? result.exitCode : null,
+        })
+      );
+      runDb.finish(runId, "succeeded");
+    } catch {
+      // ignore
+    }
+
+    return { ...result, runId };
   }
 
   throw new Error(`Unknown method: ${method}`);

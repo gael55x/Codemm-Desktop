@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { sessionDb, sessionMessageDb, activityDb, sessionCollectorDb } from "../database";
+import { activityDb, threadCollectorDb, threadDb, threadMessageDb } from "../database";
 import { canTransition, type SessionState } from "../contracts/session";
 import { applyJsonPatch, type JsonPatchOp } from "../compiler/jsonPatch";
 import { ActivitySpecSchema, type ActivitySpec } from "../contracts/activitySpec";
@@ -222,7 +222,7 @@ function appendIntentTrace(existing: unknown[], entry: unknown, maxEntries: numb
 }
 
 function requireSession(id: string) {
-  const session = sessionDb.findById(id);
+  const session = threadDb.findById(id);
   if (!session) {
     const err = new Error("Session not found");
     (err as any).status = 404;
@@ -245,12 +245,12 @@ function parseSpecJson(specJson: string): Record<string, unknown> {
 }
 
 function persistCollectorState(sessionId: string, state: SessionCollectorState): SessionCollectorState {
-  sessionCollectorDb.upsert(sessionId, state.currentQuestionKey, state.buffer);
+  threadCollectorDb.upsert(sessionId, state.currentQuestionKey, state.buffer);
   return state;
 }
 
 function getCollectorState(sessionId: string): SessionCollectorState {
-  const existing = sessionCollectorDb.findBySessionId(sessionId);
+  const existing = threadCollectorDb.findByThreadId(sessionId);
   if (!existing) {
     return persistCollectorState(sessionId, { currentQuestionKey: null, buffer: [] });
   }
@@ -280,15 +280,15 @@ export function createSession(
   const initialSpec = fixed.length > 0 ? applyJsonPatch({} as any, fixed) : {};
 
   // Contract allows null or {} — DB column is NOT NULL, so we store {}.
-  sessionDb.create(id, state, learning_mode, JSON.stringify(initialSpec));
-  sessionCollectorDb.upsert(id, null, []);
+  threadDb.create(id, state, learning_mode, JSON.stringify(initialSpec));
+  threadCollectorDb.upsert(id, null, []);
 
   return { sessionId: id, state, learning_mode };
 }
 
 export function getSession(id: string): SessionRecord {
   const s = requireSession(id);
-  const messages = sessionMessageDb.findBySessionId(id);
+  const messages = threadMessageDb.findByThreadId(id);
   const spec = parseSpecJson(s.spec_json);
   const confidence = parseJsonObject(s.confidence_json) as Record<string, number>;
   const commitments = parseCommitmentsJson(s.commitments_json);
@@ -358,7 +358,7 @@ export async function processSessionMessage(
     let commitmentsStore: CommitmentStore = parseCommitmentsJson(s.commitments_json);
 
     const persistMessage = (role: "user" | "assistant", content: string) => {
-      sessionMessageDb.create(crypto.randomUUID(), sessionId, role, content);
+      threadMessageDb.create(crypto.randomUUID(), sessionId, role, content);
       logConversationMessage({ sessionId, role, content });
     };
 
@@ -373,9 +373,9 @@ export async function processSessionMessage(
     let effectiveConfidence: ConfidenceMap = { ...existingConfidence };
 
     // Ensure the fixed fields are persisted even if the user message doesn't change anything.
-    sessionDb.updateSpecJson(sessionId, JSON.stringify(specWithFixed));
+    threadDb.updateSpecJson(sessionId, JSON.stringify(specWithFixed));
 
-	    const historyRows = sessionMessageDb.findBySessionId(sessionId).slice(-30);
+	    const historyRows = threadMessageDb.findByThreadId(sessionId).slice(-30);
 	    const history = historyRows.map((m) => ({ role: m.role as any, content: m.content as string }));
 
 	    const collector = getCollectorState(sessionId);
@@ -414,7 +414,7 @@ export async function processSessionMessage(
       needsConfirmation: dialogue.needsConfirmation ?? null,
     };
     const nextTrace = appendIntentTrace(existingTrace, traceEntry);
-    sessionDb.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
+    threadDb.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
 
 	    const pending = parsePendingConfirmation(collector.buffer);
 	    const isConfirmKey = typeof currentQuestionKey === "string" && currentQuestionKey.startsWith("confirm:");
@@ -491,7 +491,7 @@ export async function processSessionMessage(
 
     const target: SessionState = "CLARIFYING";
     transitionOrThrow(state, target);
-    sessionDb.updateState(sessionId, target);
+    threadDb.updateState(sessionId, target);
 
     return {
       accepted: true,
@@ -548,7 +548,7 @@ export async function processSessionMessage(
       appliedOps: appliedUserOps.map((op) => op.path),
     });
 	
-	  sessionDb.updateSpecJson(sessionId, JSON.stringify(nextSpec));
+	  threadDb.updateSpecJson(sessionId, JSON.stringify(nextSpec));
 
   // Treat accepted fields as high confidence (deterministic; hard-field confirmation is separate).
   for (const op of appliedUserOps) {
@@ -556,7 +556,7 @@ export async function processSessionMessage(
     if (!key) continue;
     effectiveConfidence[key] = 1;
   }
-  sessionDb.updateConfidenceJson(sessionId, JSON.stringify(effectiveConfidence));
+  threadDb.updateConfidenceJson(sessionId, JSON.stringify(effectiveConfidence));
 
   // Update commitments for any accepted user-editable fields and clear commitments for invalidated removals.
   for (const op of appliedUserOps) {
@@ -578,7 +578,7 @@ export async function processSessionMessage(
       source,
     });
   }
-  sessionDb.updateCommitmentsJson(sessionId, serializeCommitments(commitmentsStore));
+  threadDb.updateCommitmentsJson(sessionId, serializeCommitments(commitmentsStore));
 
   const done = isSpecCompleteForGeneration(nextSpec as SpecDraft);
   const nq = done ? null : buildNextQuestion(nextSpec as SpecDraft);
@@ -594,7 +594,7 @@ export async function processSessionMessage(
   if (!done) {
     const target: SessionState = "CLARIFYING";
     transitionOrThrow(state, target);
-    sessionDb.updateState(sessionId, target);
+    threadDb.updateState(sessionId, target);
     return {
       accepted: true,
       state: target,
@@ -609,12 +609,12 @@ export async function processSessionMessage(
 
   if (state === "DRAFT") {
     transitionOrThrow("DRAFT", "CLARIFYING");
-    sessionDb.updateState(sessionId, "CLARIFYING");
+    threadDb.updateState(sessionId, "CLARIFYING");
     transitionOrThrow("CLARIFYING", "READY");
-    sessionDb.updateState(sessionId, "READY");
+    threadDb.updateState(sessionId, "READY");
   } else {
     transitionOrThrow(state, "READY");
-    sessionDb.updateState(sessionId, "READY");
+    threadDb.updateState(sessionId, "READY");
   }
 
   return {
@@ -679,7 +679,7 @@ export async function generateFromSession(
 
     const persistTraceEvent = (entry: Record<string, unknown>) => {
       const nextTrace = appendIntentTrace(existingTrace, entry);
-      sessionDb.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
+      threadDb.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
       // Mutate local reference so multiple events in this call don't clobber each other.
       existingTrace.splice(0, existingTrace.length, ...nextTrace);
     };
@@ -693,7 +693,7 @@ export async function generateFromSession(
         incoming[key] = 1;
       }
       const next = mergeConfidence(existingConfidence, incoming);
-      sessionDb.updateConfidenceJson(sessionId, JSON.stringify(next));
+      threadDb.updateConfidenceJson(sessionId, JSON.stringify(next));
       Object.assign(existingConfidence, next);
     };
 
@@ -702,7 +702,7 @@ export async function generateFromSession(
     try {
     // Transition to GENERATING (lock)
     transitionOrThrow(state, "GENERATING");
-    sessionDb.updateState(sessionId, "GENERATING");
+    threadDb.updateState(sessionId, "GENERATING");
     progressHeartbeat = setInterval(() => {
       publishGenerationProgress(sessionId, { type: "heartbeat", ts: new Date().toISOString() });
     }, 1000);
@@ -747,7 +747,7 @@ export async function generateFromSession(
     // Derive initial ProblemPlan (always from current spec)
     const pedagogyPolicy = learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec, learnerProfile: null }) : undefined;
     let plan = deriveProblemPlan(spec, pedagogyPolicy);
-    sessionDb.setPlanJson(sessionId, JSON.stringify(plan));
+    threadDb.setPlanJson(sessionId, JSON.stringify(plan));
     publishGenerationProgress(sessionId, {
       type: "generation_started",
       totalSlots: plan.length,
@@ -769,8 +769,8 @@ export async function generateFromSession(
           resume: { problems: resumeProblems, outcomes: resumeOutcomes },
           onProgress: (event: GenerationProgressEvent) => publishGenerationProgress(sessionId, event),
           onCheckpoint: ({ problems: p, outcomes: o }) => {
-            sessionDb.setProblemsJson(sessionId, JSON.stringify(p));
-            sessionDb.updateGenerationOutcomesJson(sessionId, JSON.stringify(o));
+            threadDb.setProblemsJson(sessionId, JSON.stringify(p));
+            threadDb.updateGenerationOutcomesJson(sessionId, JSON.stringify(o));
           },
         });
         problems = generated.problems;
@@ -779,11 +779,11 @@ export async function generateFromSession(
         if (err instanceof GenerationSlotFailureError) {
           if (Array.isArray(err.problemsSoFar)) {
             resumeProblems = err.problemsSoFar;
-            sessionDb.setProblemsJson(sessionId, JSON.stringify(resumeProblems));
+            threadDb.setProblemsJson(sessionId, JSON.stringify(resumeProblems));
           }
           if (Array.isArray(err.outcomesSoFar)) {
             resumeOutcomes = err.outcomesSoFar;
-            sessionDb.updateGenerationOutcomesJson(sessionId, JSON.stringify(resumeOutcomes));
+            threadDb.updateGenerationOutcomesJson(sessionId, JSON.stringify(resumeOutcomes));
           }
 
           persistTraceEvent({
@@ -833,11 +833,11 @@ export async function generateFromSession(
               }
 
               spec = adjustedRes.data;
-              sessionDb.updateSpecJson(sessionId, JSON.stringify(spec));
+              threadDb.updateSpecJson(sessionId, JSON.stringify(spec));
 
               // Update plan for remaining slots (we keep already generated problems as a checkpoint).
               plan = deriveProblemPlan(spec, pedagogyPolicy);
-              sessionDb.setPlanJson(sessionId, JSON.stringify(plan));
+              threadDb.setPlanJson(sessionId, JSON.stringify(plan));
               continue;
             }
           }
@@ -855,7 +855,7 @@ export async function generateFromSession(
       const finalOutcomes = appliedFallbackReason
         ? outcomes.map((o) => ({ ...o, appliedFallback: o.appliedFallback ?? appliedFallbackReason }))
         : outcomes;
-      sessionDb.updateGenerationOutcomesJson(sessionId, JSON.stringify(finalOutcomes));
+      threadDb.updateGenerationOutcomesJson(sessionId, JSON.stringify(finalOutcomes));
       persistTraceEvent({
         ts: new Date().toISOString(),
         type: "generation_outcomes",
@@ -864,7 +864,7 @@ export async function generateFromSession(
     }
 
     // Persist problems_json
-    sessionDb.setProblemsJson(sessionId, JSON.stringify(problems));
+    threadDb.setProblemsJson(sessionId, JSON.stringify(problems));
 
     // Create Activity record
     const activityId = crypto.randomUUID();
@@ -876,11 +876,11 @@ export async function generateFromSession(
     });
 
     // Link activity to session
-    sessionDb.setActivityId(sessionId, activityId);
+    threadDb.setActivityId(sessionId, activityId);
 
     // Transition to SAVED
     transitionOrThrow("GENERATING", "SAVED");
-    sessionDb.updateState(sessionId, "SAVED");
+    threadDb.updateState(sessionId, "SAVED");
     publishGenerationProgress(sessionId, { type: "generation_completed", activityId });
     publishGenerationProgress(sessionId, { type: "generation_complete", activityId });
 
@@ -896,8 +896,8 @@ export async function generateFromSession(
     // Transition back to READY so the user can retry generation (checkpointed problems may exist).
     try {
       transitionOrThrow("GENERATING", "READY");
-      sessionDb.updateState(sessionId, "READY");
-      sessionDb.setLastError(sessionId, err.message ?? "Unknown error during generation.");
+      threadDb.updateState(sessionId, "READY");
+      threadDb.setLastError(sessionId, err.message ?? "Unknown error during generation.");
     } catch (transitionErr) {
       console.error("Failed to transition session to READY:", transitionErr);
     }

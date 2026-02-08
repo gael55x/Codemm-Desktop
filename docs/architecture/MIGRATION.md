@@ -11,8 +11,8 @@ This repo (`Codemm-IDE/`) is the single source of truth.
 - Delete auth/account flows from engine + UI.
 - Delete community/profile features from engine + UI.
 - Replace “sessions” with local **threads**:
-  - UI uses `/threads`
-  - engine keeps `/sessions` only as a **transitional alias**
+  - UI uses `threads.*` IPC APIs
+  - engine stores state in `threads` table
 
 ## Phase 2 (Done): Remove HTTP/Express/SSE Boundary
 
@@ -46,4 +46,4 @@ Status (as of 2026-02-07):
 Allowed temporarily (must be removed):
 
 - Next dev server on localhost (UI only).
-- “sessions” table name in SQLite (thread storage will be renamed to `threads`).
+- API key changes require IDE restart (temporary).
