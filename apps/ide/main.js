@@ -806,7 +806,7 @@ async function createWindowAndBoot() {
       "Docker Not Running",
       [
         "Codemm requires Docker for judging.",
-        "Start Docker Desktop, wait until it's running, then relaunch Codemm-IDE.",
+        "Start Docker Desktop, wait until it's running, then relaunch Codemm-Desktop.",
         "",
         `Details: ${dockerCheck.reason}`,
       ].join("\n"),
@@ -818,7 +818,7 @@ async function createWindowAndBoot() {
 
   const workspaceResolution = await resolveWorkspace({ userDataDir: storage.userDataDir });
   if (!workspaceResolution.workspaceDir) {
-    dialog.showErrorBox("No Workspace Selected", "Codemm-IDE needs a workspace folder to store threads and runs.");
+    dialog.showErrorBox("No Workspace Selected", "Codemm-Desktop needs a workspace folder to store threads and runs.");
     app.quit();
     return;
   }
@@ -1300,7 +1300,7 @@ async function createWindowAndBoot() {
         <head>
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>Codemm-IDE</title>
+          <title>Codemm-Desktop</title>
           <style>
             html, body { height: 100%; margin: 0; }
             body {
@@ -1337,7 +1337,7 @@ async function createWindowAndBoot() {
         </head>
         <body>
           <div class="card">
-            <h1>Starting Codemm-IDE…</h1>
+            <h1>Starting Codemm-Desktop…</h1>
             <div class="muted">
               Booting engine (agent + judge) and frontend UI locally.
               Docker is required for judging.

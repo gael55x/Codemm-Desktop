@@ -87,13 +87,13 @@ type CodeFiles = Record<string, string>;
 
 function requireActivitiesApi() {
   const api = (window as any)?.codemm?.activities;
-  if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-IDE.");
+  if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
   return api;
 }
 
 function requireJudgeApi() {
   const api = (window as any)?.codemm?.judge;
-  if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-IDE.");
+  if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
   return api;
 }
 

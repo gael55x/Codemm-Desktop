@@ -55,7 +55,7 @@ type ThreadSummary = {
 
 function requireThreadsApi() {
   const api = (window as any)?.codemm?.threads;
-  if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-IDE.");
+  if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
   return api;
 }
 

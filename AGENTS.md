@@ -1,10 +1,10 @@
-# Codemm-IDE: Agent Instructions
+# Codemm-Desktop: Agent Instructions
 
 This file defines maintainability + security rules for work in this repository.
 
 ## Goals
 
-- Ship a macOS desktop app that feels like the existing `Codemm-frontend` UI.
+- Ship a cross-platform desktop app (macOS / Windows / Linux) that feels like the existing `Codemm-frontend` UI.
 - The desktop app must start everything needed locally:
   - local engine (agent loop + persistence)
   - frontend UI
@@ -64,7 +64,7 @@ Near-term direction: bundle backend + frontend into the packaged app (no separat
 
 When we say “bundled”, we mean:
 
-- end-user installs a `.app`
+- end-user installs a native desktop artifact (`.app`/`.dmg`, `.exe`, AppImage, etc)
 - double-click launches
 - no `npm install`, no separate terminals
 - backend + frontend run from inside the app bundle

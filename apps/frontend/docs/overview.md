@@ -1,6 +1,6 @@
 # Overview
 
-Codemm Frontend is the Next.js renderer UI that runs inside Codemm-IDE (Electron).
+Codemm Frontend is the Next.js renderer UI that runs inside Codemm-Desktop (Electron).
 
 - create and continue threads (the spec-building loop)
 - generate activities once a thread spec is ready
@@ -17,7 +17,7 @@ The renderer is responsible for UX, not decision-making:
   - render a view of the current spec snapshot
   - subscribe to generation progress via IPC event stream
   - call local judge actions (`judge.run`, `judge.submit`) and render results
-  - provide a local API key settings screen (the key is not exposed to renderer JS)
+  - provide a local LLM settings screen (keys are not exposed to renderer JS)
 - It **does not**:
   - infer spec gaps or next questions locally
   - apply patches to durable state

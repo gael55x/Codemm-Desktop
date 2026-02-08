@@ -1,6 +1,6 @@
 # API (Engine)
 
-Codemm-IDE runs the engine locally and does not expose an HTTP API.
+Codemm-Desktop runs the engine locally and does not expose an HTTP API.
 
 Authoritative references:
 

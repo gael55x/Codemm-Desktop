@@ -1,6 +1,6 @@
 # Codemm Frontend (`apps/frontend`)
 
-Next.js renderer UI for Codemm-IDE.
+Next.js renderer UI for Codemm-Desktop.
 
 - Runs inside Electron in `npm run dev`.
 - Talks to the local engine via `window.codemm` (Electron preload IPC).

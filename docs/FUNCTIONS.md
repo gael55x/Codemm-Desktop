@@ -1,4 +1,4 @@
-# Functions (Codemm-IDE)
+# Functions (Codemm-Desktop)
 
 This document describes what the desktop wrapper does (and does not do).
 
@@ -20,10 +20,8 @@ This document describes what the desktop wrapper does (and does not do).
 
 ## What It Does Not Do (Yet)
 
-- Package into a distributable `.app` bundle.
-- Run the frontend in production mode from inside the app bundle (Phase 3 in progress).
+- Fully verify a packaged end-user artifact end-to-end on all OSes (build → install → run).
 - Embed a code editor different from what `Codemm-frontend` already provides.
-- Embed the frontend build inside the `.app` bundle (Phase 3).
 
 ## Environment Variables
 
@@ -38,8 +36,9 @@ This document describes what the desktop wrapper does (and does not do).
 - `CODEMM_WORKSPACE_DIR` optional workspace folder override (skips folder picker)
 - `CODEMM_DB_PATH` optional path to the backend SQLite DB file (defaults to `<workspaceDataDir>/codemm.db`)
 - `CODEMM_DB_DIR` optional directory for the backend DB (used only if `CODEMM_DB_PATH` is not set)
-- `CODEMM_OLLAMA_MODEL` optional model name when using `CODEX_PROVIDER=ollama` (local LLM via Ollama)
+- `CODEMM_OLLAMA_MODEL` optional model name for Ollama (fallback/legacy; preferred config is via UI → LLM Settings)
 - `CODEMM_OLLAMA_URL` optional base URL for Ollama (default `http://127.0.0.1:11434`)
+- `OLLAMA_PATH` optional path to the `ollama` binary (for auto-start/pull)
 - `CODEMM_USER_DATA_DIR` overrides Electron `userData` dir
 - `CODEMM_CACHE_DIR` overrides Electron cache dir
 - `CODEMM_LOGS_DIR` overrides Electron logs dir

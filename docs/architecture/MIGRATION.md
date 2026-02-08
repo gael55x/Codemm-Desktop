@@ -1,10 +1,10 @@
-# Migration Phases (IDE-First)
+# Migration Phases (Desktop-First)
 
-This repo (`Codemm-IDE/`) is the single source of truth.
+This repo (Codemm-Desktop) is the single source of truth.
 
 ## Phase 0 (Done)
 
-- Consolidate work into `Codemm-IDE` monorepo (already the case).
+- Consolidate work into the desktop monorepo (already the case).
 
 ## Phase 1: Remove Auth + Users + Community (Done)
 
@@ -41,11 +41,11 @@ Status (as of 2026-02-08):
 - Frontend builds produce a standalone bundle (`output: "standalone"` + `prepare-standalone`).
 - IDE can boot the standalone frontend server when packaged (or when `CODEMM_FRONTEND_MODE=standalone`).
 - Packaged runs force the engine to load compiled `dist` (`CODEMM_ENGINE_USE_DIST=1`).
-- Packaging rebuilds native deps for Electron (`npm run dist:mac` runs `npm run rebuild:electron`).
+- Packaging rebuilds native deps for Electron (`npm run dist:*` runs `npm run rebuild:electron`).
 
 ## Transitional Compatibility Rules
 
 Allowed temporarily (must be removed):
 
 - Next dev server on localhost (UI only).
-- API key changes require IDE restart (temporary).
+- Localhost UI port (until the renderer is embedded without ports).

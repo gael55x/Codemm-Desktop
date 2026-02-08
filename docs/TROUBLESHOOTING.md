@@ -1,4 +1,4 @@
-# Troubleshooting (Codemm-IDE)
+# Troubleshooting (Codemm-Desktop)
 
 ## Docker Not Found
 
@@ -24,7 +24,7 @@ Symptom:
 Fix:
 
 - Start Docker Desktop and wait until it finishes starting.
-- Relaunch `Codemm-IDE`.
+- Relaunch `Codemm-Desktop`.
 
 ## Port Already In Use (3000)
 
@@ -93,7 +93,7 @@ Symptom:
 Fix:
 
 - Ensure the SQLite DB lives in a writable location.
-  - By default, Codemm-IDE uses a per-workspace DB at `<workspaceDataDir>/codemm.db`.
+  - By default, Codemm-Desktop uses a per-workspace DB at `<workspaceDataDir>/codemm.db`.
   - Preferred workspace data dir: `<workspace>/.codemm/`.
   - Fallback workspace data dir: Electron `userData/Workspaces/<hash>/`.
   - If you override `CODEMM_DB_PATH`, prefer an absolute path (or `~`).
@@ -125,6 +125,8 @@ Fix (packaging / dist):
 
 - From repo root:
   - `npm run dist:mac`
+  - `npm run dist:win`
+  - `npm run dist:linux`
 
 Fix (dev):
 
@@ -139,9 +141,8 @@ Symptom:
 
 Fix:
 
-- Install and start Ollama (local server).
-- Pull a model in your terminal (example): `ollama pull qwen2.5-coder:7b`
-- In the IDE: **API Key** → Provider `Ollama (local)` → set Model to the pulled name.
+- Install Ollama (local server).
+- In **LLM Settings**: Provider `Ollama (local)` → set Model (example: `qwen2.5-coder:7b`) → click **Ensure + pull model**.
 
 ## Electron/Chromium Cache Error: “Failed to write the temporary index file”
 

@@ -2,7 +2,7 @@
 
 This document defines how the renderer should interpret engine/judge errors and recover predictably.
 
-Codemm-IDE is local-only and uses an Electron preload bridge (`window.codemm.*`). There is no internal HTTP API and no SSE.
+Codemm-Desktop is local-only and uses an Electron preload bridge (`window.codemm.*`). There is no internal HTTP API and no SSE.
 
 ## IPC call errors
 

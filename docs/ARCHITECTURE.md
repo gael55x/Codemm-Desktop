@@ -1,6 +1,6 @@
-# Architecture (Codemm-IDE)
+# Architecture (Codemm-Desktop)
 
-Codemm-IDE is a local-only Electron IDE.
+Codemm-Desktop is a local-only Electron desktop app.
 
 Core docs:
 
@@ -21,6 +21,7 @@ Core docs:
 4. Ensure judge images exist (build `apps/backend/Dockerfile.*-judge` as needed).
 5. Start engine via IPC (`fork` → `apps/backend/ipc-server.js`) with:
    - `CODEMM_DB_PATH=<workspaceDataDir>/codemm.db`
+   - LLM provider configured in-memory via IPC (`engine.configureLlm`)
 6. Start frontend on `CODEMM_FRONTEND_PORT` (default 3000).
 7. Load the frontend URL inside Electron with a preload bridge (`apps/ide/preload.js`).
 

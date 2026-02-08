@@ -1,6 +1,6 @@
 # Architecture
 
-Codemm Frontend is a Next.js App Router application that runs as the renderer UI inside Codemm-IDE (Electron).
+Codemm Frontend is a Next.js App Router application that runs as the renderer UI inside Codemm-Desktop (Electron).
 
 ## Key properties
 
@@ -14,7 +14,7 @@ Codemm Frontend is a Next.js App Router application that runs as the renderer UI
   - `src/app/page.tsx`: thread UI (create, chat, generate)
   - `src/app/activities/page.tsx`: local activities list
   - `src/app/activity/[id]/page.tsx`: solver UI (editor + run/submit)
-  - `src/app/settings/llm/page.tsx`: local API key settings
+  - `src/app/settings/llm/page.tsx`: local LLM settings
 - `src/components` – reusable UI building blocks
 - `src/lib` – client helpers (normalization, language UI helpers)
 - `src/types` – type definitions for backend events/payloads

@@ -25,7 +25,7 @@ type Activity = {
 
 function requireActivitiesApi() {
   const api = (window as any)?.codemm?.activities;
-  if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-IDE.");
+  if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
   return api;
 }
 

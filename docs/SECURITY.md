@@ -1,4 +1,4 @@
-# Security Notes (Codemm-IDE)
+# Security Notes (Codemm-Desktop)
 
 ## Threat Model (Practical)
 
@@ -35,11 +35,12 @@ Local model option:
 ## Docker Boundary
 
 - All compilation/execution/judging remains in Docker.
-- The IDE should never run submitted code directly via `child_process` outside Docker.
+- The app should never run submitted code directly via `child_process` outside Docker.
+- Docker is invoked via `spawn()` with argument arrays (no shell command strings) to reduce injection surface and improve cross-platform behavior.
 
 ## Localhost Port Hijacking (Transitional)
 
-Codemm-IDE currently serves the renderer UI from a local Next.js server (127.0.0.1).
+Codemm-Desktop currently serves the renderer UI from a local Next.js server (127.0.0.1).
 
 Threat:
 

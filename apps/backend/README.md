@@ -1,6 +1,6 @@
 # Codemm Engine (`apps/backend`)
 
-Local-only engine for Codemm-IDE (agent loop + SQLite persistence + Docker judge).
+Local-only engine for Codemm-Desktop (agent loop + SQLite persistence + Docker judge).
 
 - Entry: `ipc-server.js` (loads `dist/ipcServer.js` in builds, or `src/ipcServer.ts` via `ts-node` in dev).
 - No Express/HTTP server.

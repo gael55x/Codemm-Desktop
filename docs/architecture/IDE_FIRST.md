@@ -1,6 +1,6 @@
-# IDE-First Architecture (Codemm-IDE)
+# Desktop-First Architecture (Codemm-Desktop)
 
-Codemm-IDE is a local-only Electron app. There is no authentication, no accounts, no community features, and no server-owned sessions.
+Codemm-Desktop is a local-only Electron app. There is no authentication, no accounts, no community features, and no server-owned sessions.
 
 ## Mental Model
 
@@ -66,9 +66,8 @@ Target (final):
   - `window.codemm.secrets.getLlmSettings()`
   - `window.codemm.secrets.setLlmSettings({ provider, apiKey })`
   - `window.codemm.secrets.clearLlmSettings()`
-- Engine receives the key via environment variables on launch (transitional).
-  - Electron configures the engine in-memory on boot (no secrets in renderer JS).
-  - Changing the key currently requires restarting the IDE (transitional).
+- Engine is configured in-memory via IPC (`engine.configureLlm`) (no secrets in renderer JS and no env-based key injection).
+- Changing provider/keys applies to the running engine (new runs use the new configuration).
 
 ### Local-Only LLM Option (No API Key): Ollama
 
@@ -76,6 +75,7 @@ Codemm can run without a paid API key by using a local model via Ollama:
 
 - Set provider to `ollama` and configure a local model name (stored locally; not secret).
 - The engine calls Ollama over localhost (default `http://127.0.0.1:11434`).
+- The desktop app can (best-effort) start `ollama serve` and pull missing models via the Ollama CLI.
 
 ## Deleted SaaS Concepts (By Design)
 

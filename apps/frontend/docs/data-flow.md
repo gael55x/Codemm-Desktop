@@ -2,7 +2,7 @@
 
 This document describes renderer workflows and how they map to the IDE bridge (`window.codemm`).
 
-Codemm-IDE is local-only: no auth, no accounts, no community browsing, no internal HTTP API.
+Codemm-Desktop is local-only: no auth, no accounts, no community browsing, no internal HTTP API.
 
 ## 1) Start a thread
 

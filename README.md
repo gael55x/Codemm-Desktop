@@ -1,10 +1,10 @@
 <div align="center">
   <h1>Codemm</h1>
-  <p>Codemm is a local-only Electron IDE that turns a short chat into verified programming activities (problems + tests) and grades solutions in Docker sandboxes.</p>
+  <p>Codemm-Desktop is a local-only Electron desktop app that turns a short chat into verified programming activities (problems + tests) and grades solutions in Docker sandboxes.</p>
   <img src="./apps/frontend/images/Codemm-home.png" alt="Codemm home" width="900" />
 </div>
 
-## What Codemm Is (IDE-First)
+## What Codemm-Desktop Is (Desktop-First)
 
 Codemm runs entirely on your machine:
 
@@ -52,17 +52,17 @@ There is no internal HTTP API for engine calls. UI → engine is IPC only.
 
 If you can’t use a paid API key, Codemm can use a local model via Ollama:
 
-1) Install Ollama and start it (it runs on `http://127.0.0.1:11434`).
-2) Pull a model (examples: `qwen2.5-coder:7b` for lighter machines, `qwen2.5-coder:14b` for higher quality if you have RAM).
-3) In Codemm → **API Key** settings:
+1) Install Ollama (it runs on `http://127.0.0.1:11434`).
+2) In Codemm → **LLM Settings**:
    - Provider: `Ollama (local)`
-   - Model: your pulled model name (e.g. `qwen2.5-coder:7b`)
+   - Model: e.g. `qwen2.5-coder:7b`
+3) Click **Ensure + pull model** to start Ollama (best-effort) and pull the model from inside the app.
 
 ## Development
 
 Requirements:
 
-- macOS
+- macOS / Windows / Linux
 - Node.js + npm
 - Docker Desktop (running)
 
@@ -73,16 +73,18 @@ npm install
 npm run dev
 ```
 
-On first launch, pick a workspace folder. Configure your LLM API key via the **API Key** screen in the UI.
+On first launch, pick a workspace folder. Configure your provider via **LLM Settings** in the UI.
 
-## Packaging (macOS)
+## Packaging
 
 ```bash
 npm install
 npm run dist:mac
+npm run dist:win
+npm run dist:linux
 ```
 
-`dist:mac` rebuilds native deps for Electron automatically (notably `better-sqlite3`).
+Builds are typically produced on the target OS (mac builds on macOS, win builds on Windows, etc). All `dist:*` scripts rebuild native deps for Electron automatically (notably `better-sqlite3`).
 
 ## Docs Index
 

@@ -1,6 +1,6 @@
-# Contributing (Codemm-IDE)
+# Contributing (Codemm-Desktop)
 
-Codemm-IDE is an Electron wrapper around the in-repo apps:
+Codemm-Desktop is an Electron wrapper around the in-repo apps:
 
 - `apps/backend` (local engine: agent loop + SQLite + Docker judge; IPC-only)
 - `apps/frontend` (Next.js renderer UI)
@@ -17,7 +17,7 @@ The goal is a single desktop app experience while keeping backend determinism an
 ## Local Development
 
 1. Ensure Docker Desktop is running.
-2. From `Codemm-IDE/`:
+2. From the repo root:
 
 ```bash
 npm install

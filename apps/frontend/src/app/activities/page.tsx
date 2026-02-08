@@ -28,7 +28,7 @@ function requireActivitiesApi() {
   const codemm = isObject(w.codemm) ? w.codemm : null;
   const activities = codemm && isObject(codemm.activities) ? codemm.activities : null;
   const list = activities && "list" in activities ? (activities as Record<string, unknown>).list : null;
-  if (typeof list !== "function") throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-IDE.");
+  if (typeof list !== "function") throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
   return { list: list as (args: { limit?: number }) => Promise<ActivitiesListResponse> };
 }
 
