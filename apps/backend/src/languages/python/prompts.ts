@@ -1,4 +1,5 @@
 import type { ProblemSlot } from "../../planner/types";
+import type { SlotPromptContext } from "../types";
 
 export const PYTHON_V1_GENERATOR_SYSTEM_PROMPT = `
 You are Codemm's Python problem generator. Generate exactly 1 Python problem that matches the provided requirements.
@@ -30,7 +31,7 @@ Output format:
 - Return a JSON object for a SINGLE problem (not an array)
 `.trim();
 
-export function buildPythonSlotPrompt(slot: ProblemSlot): string {
+export function buildPythonSlotPrompt(slot: ProblemSlot, ctx?: SlotPromptContext): string {
   const topicsText = slot.topics.join(", ");
   const style = slot.problem_style === "stdout" || slot.problem_style === "mixed" || slot.problem_style === "return" ? slot.problem_style : "return";
   const styleRules =
@@ -39,6 +40,8 @@ export function buildPythonSlotPrompt(slot: ProblemSlot): string {
       : style === "mixed"
         ? `- solve(...) should return the answer AND print it to stdout\n- test_suite must assert solve(...) == expected AND assert captured.out`
         : `- solve(...) must return the answer (no printing)\n- test_suite must assert solve(...) == expected`;
+  const custom = typeof ctx?.customInstructionsMd === "string" ? ctx.customInstructionsMd.trim() : "";
+  const customBlock = custom ? `\nCustom instructions (user focus; best-effort):\n${custom}\n` : "";
 
   return `Generate exactly 1 Python problem with the following requirements:
 
@@ -46,6 +49,7 @@ Difficulty: ${slot.difficulty}
 Topics: ${topicsText}
 Problem style: ${slot.problem_style}
 Constraints: ${slot.constraints}
+${customBlock}
 
 Return a JSON object (not array) with these exact fields:
 {

@@ -117,6 +117,8 @@ export function buildJavaSlotPrompt(slot: ProblemSlot, ctx?: SlotPromptContext):
   const topicReqs = getTopicStructuralRequirements(slot.topics);
   const topicReqBlock = topicReqs.length ? `\nTopic structural requirements:\n- ${topicReqs.join("\n- ")}\n` : "";
   const diversityHint = buildDiversityHint(ctx);
+  const custom = typeof ctx?.customInstructionsMd === "string" ? ctx.customInstructionsMd.trim() : "";
+  const customBlock = custom ? `\nCustom instructions (user focus; best-effort):\n${custom}\n` : "";
 
   if (workspaceMode) {
     return `Generate exactly 1 Java problem with the following requirements:
@@ -125,7 +127,7 @@ Difficulty: ${slot.difficulty}
 Topics: ${topicsText}
 Problem style: ${slot.problem_style}
 Constraints: ${slot.constraints}
-${diversityHint}${topicReqBlock}
+${diversityHint}${topicReqBlock}${customBlock}
 
 Return a JSON object (not array) with these exact fields:
 {
@@ -173,7 +175,7 @@ Difficulty: ${slot.difficulty}
 Topics: ${topicsText}
 Problem style: ${slot.problem_style}
 Constraints: ${slot.constraints}
-${diversityHint}${topicReqBlock}
+${diversityHint}${topicReqBlock}${customBlock}
 
 Return a JSON object (not array) with these exact fields:
 {

@@ -42,6 +42,7 @@ export async function generateProblemsFromPlan(
   plan: ProblemPlan,
   opts?: {
     onProgress?: (event: GenerationProgressEvent) => void;
+    customInstructionsMd?: string | null;
     resume?: { problems: GeneratedProblem[]; outcomes: GenerationOutcome[] };
     onCheckpoint?: (state: {
       problems: GeneratedProblem[];
@@ -71,6 +72,13 @@ export async function generateProblemsFromPlan(
   const validateReferenceSolutionFn = opts?.deps?.validateReferenceSolution ?? validateReferenceSolution;
   const usedDomains: string[] = [];
   const usedTitles: string[] = [];
+  const customInstructionsMd = (() => {
+    const raw = typeof opts?.customInstructionsMd === "string" ? opts.customInstructionsMd : "";
+    const trimmed = raw.trim();
+    if (!trimmed) return undefined;
+    const maxLen = 8000;
+    return trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}…(truncated)` : trimmed;
+  })();
 
   const DOMAIN_POOL = [
     "smart home",
@@ -132,6 +140,7 @@ export async function generateProblemsFromPlan(
       domain: domainSeed,
       avoidDomains: usedDomains.slice(-4),
       avoidTitles: usedTitles.slice(-4),
+      ...(customInstructionsMd ? { customInstructionsMd } : {}),
     };
 
     const topic = slot.topics[0] ?? "topic";

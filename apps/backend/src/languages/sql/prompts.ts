@@ -1,4 +1,5 @@
 import type { ProblemSlot } from "../../planner/types";
+import type { SlotPromptContext } from "../types";
 
 export const SQL_V1_GENERATOR_SYSTEM_PROMPT = `
 You are Codemm's SQL problem generator. Generate exactly 1 SQL problem that matches the provided requirements.
@@ -24,8 +25,10 @@ Output format:
 - Return a JSON object for a SINGLE problem (not an array)
 `.trim();
 
-export function buildSqlSlotPrompt(slot: ProblemSlot): string {
+export function buildSqlSlotPrompt(slot: ProblemSlot, ctx?: SlotPromptContext): string {
   const topicsText = slot.topics.join(", ");
+  const custom = typeof ctx?.customInstructionsMd === "string" ? ctx.customInstructionsMd.trim() : "";
+  const customBlock = custom ? `\nCustom instructions (user focus; best-effort):\n${custom}\n` : "";
 
   return `Generate exactly 1 SQL (SQLite) problem with the following requirements:
 
@@ -33,6 +36,7 @@ Difficulty: ${slot.difficulty}
 Topics: ${topicsText}
 Problem style: ${slot.problem_style}
 Constraints: ${slot.constraints}
+${customBlock}
 
 Return a JSON object (not array) with these exact fields:
 {
@@ -61,4 +65,3 @@ Critical rules:
 Respond ONLY with JSON. NO markdown. NO code fences. NO extra text.`;
 
 }
-

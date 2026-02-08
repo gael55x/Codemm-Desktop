@@ -39,6 +39,7 @@ export type SessionRecord = {
   state: SessionState;
   learning_mode: LearningMode;
   spec: Record<string, unknown>;
+  instructions_md: string | null;
   messages: { id: string; role: "user" | "assistant"; content: string; created_at: string }[];
   collector: { currentQuestionKey: string | null; buffer: string[] };
   confidence: Record<string, number>;
@@ -290,6 +291,9 @@ export function getSession(id: string): SessionRecord {
   const s = requireSession(id);
   const messages = threadMessageDb.findByThreadId(id);
   const spec = parseSpecJson(s.spec_json);
+  const instructions_md = typeof (s as any).instructions_md === "string" && (s as any).instructions_md.trim()
+    ? String((s as any).instructions_md)
+    : null;
   const confidence = parseJsonObject(s.confidence_json) as Record<string, number>;
   const commitments = parseCommitmentsJson(s.commitments_json);
   const collector = getCollectorState(id);
@@ -302,6 +306,7 @@ export function getSession(id: string): SessionRecord {
     state: s.state as SessionState,
     learning_mode,
     spec,
+    instructions_md,
     messages,
     collector,
     confidence,
@@ -309,6 +314,13 @@ export function getSession(id: string): SessionRecord {
     generationOutcomes,
     intentTrace,
   };
+}
+
+export function setSessionInstructions(sessionId: string, instructionsMd: string | null): { ok: true } {
+  requireSession(sessionId);
+  const next = typeof instructionsMd === "string" && instructionsMd.trim() ? instructionsMd : null;
+  threadDb.setInstructionsMd(sessionId, next);
+  return { ok: true };
 }
 
 export type ProcessMessageResponse =
@@ -660,6 +672,8 @@ export async function generateFromSession(
     const s = requireSession(sessionId);
     const state = s.state as SessionState;
     const learning_mode = parseLearningMode((s as any).learning_mode);
+    const instructionsMdRaw = typeof (s as any).instructions_md === "string" ? String((s as any).instructions_md) : "";
+    const instructionsMd = instructionsMdRaw.trim() ? instructionsMdRaw : null;
 
     if (state !== "READY") {
       const err = new Error(`Cannot generate when session state is ${state}. Expected READY.`);
@@ -766,6 +780,7 @@ export async function generateFromSession(
       try {
         // Generate problems (per-slot with retries + Docker validation + discard reference_solution)
         const generated = await generateProblemsFromPlan(plan, {
+          customInstructionsMd: instructionsMd,
           resume: { problems: resumeProblems, outcomes: resumeOutcomes },
           onProgress: (event: GenerationProgressEvent) => publishGenerationProgress(sessionId, event),
           onCheckpoint: ({ problems: p, outcomes: o }) => {

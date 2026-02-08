@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { initializeDatabase, activityDb, runDb, runEventDb, submissionDb, threadDb, threadMessageDb } from "./database";
 import type { LearningMode } from "./contracts/learningMode";
-import { createSession, generateFromSession, getSession, processSessionMessage } from "./services/sessionService";
+import { createSession, generateFromSession, getSession, processSessionMessage, setSessionInstructions } from "./services/sessionService";
 import { ActivityLanguageSchema } from "./contracts/activitySpec";
 import {
   getLanguageProfile,
@@ -128,6 +128,7 @@ async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
       threadId: s.id,
       state: s.state,
       learning_mode: s.learning_mode,
+      instructions_md: s.instructions_md,
       spec: s.spec,
       messages: s.messages,
       collector: s.collector,
@@ -136,6 +137,18 @@ async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
       generationOutcomes: s.generationOutcomes,
       intentTrace: s.intentTrace,
     };
+  }
+
+  if (method === "threads.setInstructions") {
+    const params = requireParams(paramsRaw);
+    const threadId = getString(params.threadId);
+    if (!threadId) throw new Error("threadId is required.");
+    const raw = params.instructions_md;
+    const instructionsMd = typeof raw === "string" ? raw : raw === null ? null : null;
+    if (typeof instructionsMd === "string" && instructionsMd.length > 8000) {
+      throw new Error("instructions_md is too large.");
+    }
+    return setSessionInstructions(threadId, instructionsMd);
   }
 
   if (method === "threads.postMessage") {
@@ -258,6 +271,13 @@ async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
         createdAt: dbActivity.created_at,
       },
     };
+  }
+
+  if (method === "activities.list") {
+    const params = requireParams(paramsRaw);
+    const limit = getNumber(params.limit) ?? 30;
+    const activities = activityDb.listSummaries(limit);
+    return { activities };
   }
 
   if (method === "activities.patch") {

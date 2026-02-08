@@ -1,4 +1,5 @@
 import type { ProblemSlot } from "../../planner/types";
+import type { SlotPromptContext } from "../types";
 
 export const CPP_V1_GENERATOR_SYSTEM_PROMPT = `
 You are Codemm's C++ problem generator. Generate exactly 1 C++ problem that matches the provided requirements.
@@ -64,7 +65,7 @@ Output format:
 - Return a JSON object for a SINGLE problem (not an array)
 `.trim();
 
-export function buildCppSlotPrompt(slot: ProblemSlot): string {
+export function buildCppSlotPrompt(slot: ProblemSlot, ctx?: SlotPromptContext): string {
   const topicsText = slot.topics.join(", ");
   const style =
     slot.problem_style === "stdout" || slot.problem_style === "mixed" || slot.problem_style === "return"
@@ -76,6 +77,8 @@ export function buildCppSlotPrompt(slot: ProblemSlot): string {
       : style === "mixed"
         ? `- reference_solution should return the answer AND print it to std::cout\n- test_suite must compare BOTH the returned value and captured std::cout output`
         : `- reference_solution must return the answer (no printing)\n- test_suite must compare returned values only (no stdout capture)`;
+  const custom = typeof ctx?.customInstructionsMd === "string" ? ctx.customInstructionsMd.trim() : "";
+  const customBlock = custom ? `\nCustom instructions (user focus; best-effort):\n${custom}\n` : "";
 
   return `Generate exactly 1 C++ problem with the following requirements:
 
@@ -83,6 +86,7 @@ Difficulty: ${slot.difficulty}
 Topics: ${topicsText}
 Problem style: ${slot.problem_style}
 Constraints: ${slot.constraints}
+${customBlock}
 
 Return a JSON object (not array) with these exact fields:
 {

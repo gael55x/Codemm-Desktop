@@ -26,6 +26,9 @@ export type SlotPromptContext = {
   // Soft "don't repeat" nudges across slots in the same generation run.
   avoidDomains?: string[];
   avoidTitles?: string[];
+  // User-provided, per-thread guidance for how problems should be shaped.
+  // May include Markdown/code blocks; treated as "soft constraints" (must not override safety/runtime constraints).
+  customInstructionsMd?: string;
 };
 
 export type LanguageProfile = {

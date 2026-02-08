@@ -178,6 +178,7 @@ export function initializeDatabase() {
   if (!threadColSet.has("intent_trace_json")) db.exec(`ALTER TABLE threads ADD COLUMN intent_trace_json TEXT`);
   if (!threadColSet.has("commitments_json")) db.exec(`ALTER TABLE threads ADD COLUMN commitments_json TEXT`);
   if (!threadColSet.has("generation_outcomes_json")) db.exec(`ALTER TABLE threads ADD COLUMN generation_outcomes_json TEXT`);
+  if (!threadColSet.has("instructions_md")) db.exec(`ALTER TABLE threads ADD COLUMN instructions_md TEXT`);
   if (!threadColSet.has("learning_mode")) {
     db.exec(`ALTER TABLE threads ADD COLUMN learning_mode TEXT NOT NULL DEFAULT 'practice'`);
   }
@@ -295,6 +296,14 @@ export interface DBActivity {
   created_at: string;
 }
 
+export interface DBActivitySummary {
+  id: string;
+  title: string;
+  status?: string;
+  time_limit_seconds?: number | null;
+  created_at: string;
+}
+
 export interface Submission {
   id: number;
   activity_id: string;
@@ -312,6 +321,7 @@ export interface DBSession {
   state: string;
   learning_mode?: string | null;
   spec_json: string;
+  instructions_md?: string | null;
   plan_json?: string | null;
   problems_json?: string | null;
   activity_id?: string | null;
@@ -380,6 +390,14 @@ export const activityDb = {
   findById: (id: string): DBActivity | undefined => {
     const stmt = db.prepare(`SELECT * FROM activities WHERE id = ?`);
     return stmt.get(id) as DBActivity | undefined;
+  },
+
+  listSummaries: (limit: number = 50): DBActivitySummary[] => {
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+    const stmt = db.prepare(
+      `SELECT id, title, status, time_limit_seconds, created_at FROM activities ORDER BY created_at DESC LIMIT ?`
+    );
+    return stmt.all(safeLimit) as DBActivitySummary[];
   },
 
   listAll: (limit: number = 50): DBActivity[] => {
@@ -481,10 +499,10 @@ export const threadDb = {
     specJson: string
   ) => {
     const stmt = db.prepare(
-      `INSERT INTO threads (id, state, learning_mode, spec_json, confidence_json, intent_trace_json, commitments_json, generation_outcomes_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+      `INSERT INTO threads (id, state, learning_mode, spec_json, instructions_md, confidence_json, intent_trace_json, commitments_json, generation_outcomes_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
     );
-    stmt.run(id, state, learningMode, specJson, "{}", "[]", "[]", "[]");
+    stmt.run(id, state, learningMode, specJson, null, "{}", "[]", "[]", "[]");
   },
 
   findById: (id: string): DBSession | undefined => {
@@ -504,6 +522,13 @@ export const threadDb = {
       `UPDATE threads SET spec_json = ?, updated_at = datetime('now') WHERE id = ?`
     );
     stmt.run(specJson, id);
+  },
+
+  setInstructionsMd: (id: string, instructionsMd: string | null) => {
+    const stmt = db.prepare(
+      `UPDATE threads SET instructions_md = ?, updated_at = datetime('now') WHERE id = ?`
+    );
+    stmt.run(instructionsMd ?? null, id);
   },
 
   setPlanJson: (id: string, planJson: string) => {
