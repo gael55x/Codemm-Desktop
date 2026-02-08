@@ -257,6 +257,10 @@ function waitForFrontendReady(frontendUrl, { token, timeoutMs = 180_000, interva
 
 function existsExecutable(p) {
   try {
+    const stat = fs.statSync(p);
+    if (!stat.isFile()) return false;
+    // On Windows, X_OK isn't reliable; existence + file-ness is good enough for our use.
+    if (process.platform === "win32") return true;
     fs.accessSync(p, fs.constants.X_OK);
     return true;
   } catch {
@@ -264,17 +268,38 @@ function existsExecutable(p) {
   }
 }
 
+function commandExists(cmd, args = ["--version"]) {
+  const res = spawnSync(cmd, args, { stdio: "ignore" });
+  if (res.error && res.error.code === "ENOENT") return false;
+  return res.status === 0;
+}
+
 function findDockerBinary() {
   if (process.env.DOCKER_PATH && existsExecutable(process.env.DOCKER_PATH)) {
     return process.env.DOCKER_PATH;
   }
 
-  const candidates = [
-    "docker", // PATH
-    "/usr/local/bin/docker",
-    "/opt/homebrew/bin/docker",
-    "/Applications/Docker.app/Contents/Resources/bin/docker",
-  ];
+  /** @type {string[]} */
+  const candidates = [];
+
+  // PATH first (but only if it actually resolves).
+  if (commandExists("docker", ["--version"])) candidates.push("docker");
+
+  if (process.platform === "darwin") {
+    candidates.push(
+      "/usr/local/bin/docker",
+      "/opt/homebrew/bin/docker",
+      "/Applications/Docker.app/Contents/Resources/bin/docker"
+    );
+  } else if (process.platform === "win32") {
+    candidates.push(
+      "C:\\\\Program Files\\\\Docker\\\\Docker\\\\resources\\\\bin\\\\docker.exe",
+      "C:\\\\Program Files\\\\Docker\\\\Docker\\\\resources\\\\bin\\\\docker"
+    );
+  } else {
+    // linux + other unix
+    candidates.push("/usr/bin/docker", "/usr/local/bin/docker", "/snap/bin/docker");
+  }
 
   for (const c of candidates) {
     if (c === "docker") return "docker";
@@ -291,6 +316,9 @@ function checkDockerRunning({ dockerBin, timeoutMs = 8000 }) {
     encoding: "utf8",
   });
 
+  if (res.error && res.error.code === "ENOENT") {
+    return { ok: false, reason: `Docker binary not found: ${dockerBin}` };
+  }
   if (res.error && res.error.code === "ETIMEDOUT") {
     return { ok: false, reason: `Timed out after ${timeoutMs}ms while running "docker info".` };
   }
@@ -333,6 +361,14 @@ async function waitForDockerRunning({
 
 function killProcessTree(proc) {
   if (!proc || !proc.pid) return;
+  if (process.platform === "win32") {
+    try {
+      spawnSync("taskkill", ["/pid", String(proc.pid), "/T", "/F"], { stdio: "ignore" });
+      return;
+    } catch {
+      // fallthrough
+    }
+  }
   try {
     // On macOS/Linux, negative PID targets the full process group when spawned with `detached: true`.
     process.kill(-proc.pid, "SIGTERM");

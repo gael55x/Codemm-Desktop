@@ -13,6 +13,8 @@
     "build:frontend": "npm --workspace codem-frontend run build",
     "rebuild:electron": "npx electron-builder install-app-deps --config electron-builder.yml",
     "dist:mac": "npm run build && npm run rebuild:electron && npx electron-builder --mac --config electron-builder.yml",
+    "dist:win": "npm run build && npm run rebuild:electron && npx electron-builder --win --config electron-builder.yml",
+    "dist:linux": "npm run build && npm run rebuild:electron && npx electron-builder --linux --config electron-builder.yml",
     "lint": "npm --workspace codem-frontend run lint",
     "test": "npm --workspace codem-backend run test",
     "test:unit": "npm --workspace codem-backend run test:unit",

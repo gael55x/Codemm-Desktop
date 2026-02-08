@@ -1,5 +1,5 @@
-appId: com.codemm.ide
-productName: Codemm-IDE
+appId: com.codemm.desktop
+productName: Codemm-Desktop
 npmRebuild: true
 
 directories:
@@ -21,3 +21,13 @@ mac:
   category: public.app-category.developer-tools
   target:
     - dmg
+
+win:
+  target:
+    - nsis
+
+linux:
+  category: Development
+  target:
+    - AppImage
+    - deb
