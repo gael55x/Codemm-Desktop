@@ -9,7 +9,9 @@ const path = require("path");
 // This keeps Electron main simple (fork this file and speak process IPC).
 
 const distEntry = path.join(__dirname, "dist", "ipcServer.js");
-const useDist = process.env.NODE_ENV === "production" || process.env.CODEMM_ENGINE_USE_DIST === "1";
+// Deterministic: only use dist when explicitly forced.
+// (NODE_ENV can be set externally in dev; do not let that flip engine mode implicitly.)
+const useDist = process.env.CODEMM_ENGINE_USE_DIST === "1";
 if (useDist && fs.existsSync(distEntry)) {
   require(distEntry);
 } else {

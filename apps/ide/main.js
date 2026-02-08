@@ -7,6 +7,7 @@ const http = require("http");
 const net = require("net");
 const os = require("os");
 const path = require("path");
+const { z } = require("zod");
 
 const DEFAULT_FRONTEND_PORT = Number.parseInt(process.env.CODEMM_FRONTEND_PORT || "3000", 10);
 
@@ -294,6 +295,17 @@ function wireLogs(name, proc) {
 
 function isObject(x) {
   return Boolean(x) && typeof x === "object" && !Array.isArray(x);
+}
+
+function validate(schema, args) {
+  const res = schema.safeParse(args);
+  if (!res.success) {
+    const msg = res.error.issues?.[0]?.message || "Invalid args.";
+    const err = new Error(msg);
+    err.name = "ValidationError";
+    throw err;
+  }
+  return res.data;
 }
 
 function resolveNodeBin() {
@@ -626,8 +638,15 @@ async function createWindowAndBoot() {
     });
 
     ipcMain.handle("codemm:secrets:setLlmSettings", async (_evt, args) => {
-      const provider = args && typeof args.provider === "string" ? args.provider.trim().toLowerCase() : "";
-      const apiKey = args && typeof args.apiKey === "string" ? args.apiKey.trim() : "";
+      const parsed = validate(
+        z.object({
+          provider: z.enum(["openai", "anthropic", "gemini"]),
+          apiKey: z.string().min(10).max(500),
+        }),
+        args
+      );
+      const provider = parsed.provider.trim().toLowerCase();
+      const apiKey = parsed.apiKey.trim();
       if (!(provider === "openai" || provider === "anthropic" || provider === "gemini")) {
         throw new Error("Invalid provider.");
       }
@@ -663,84 +682,146 @@ async function createWindowAndBoot() {
 
     // Threads (local-only; no HTTP boundary).
     ipcMain.handle("codemm:threads:create", async (_evt, args) => {
-      const learning_mode = args && typeof args.learning_mode === "string" ? args.learning_mode : null;
+      const parsed = validate(
+        z
+          .object({
+            learning_mode: z.enum(["practice", "guided"]).optional(),
+          })
+          .optional(),
+        args
+      );
+      const learning_mode = parsed?.learning_mode ?? null;
       return engineCall("threads.create", { ...(learning_mode ? { learning_mode } : {}) });
     });
 
     ipcMain.handle("codemm:threads:list", async (_evt, args) => {
-      const limit =
-        args && typeof args.limit === "number" && Number.isFinite(args.limit) ? Math.max(1, Math.min(200, Math.trunc(args.limit))) : 30;
+      const parsed = validate(
+        z
+          .object({
+            limit: z.number().int().min(1).max(200).optional(),
+          })
+          .optional(),
+        args
+      );
+      const limit = typeof parsed?.limit === "number" ? parsed.limit : 30;
       return engineCall("threads.list", { limit });
     });
 
     ipcMain.handle("codemm:threads:get", async (_evt, args) => {
-      const threadId = reqString(args?.threadId, "threadId");
+      const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
+      const threadId = reqString(parsed.threadId, "threadId");
       return engineCall("threads.get", { threadId });
     });
 
     ipcMain.handle("codemm:threads:postMessage", async (_evt, args) => {
-      const threadId = reqString(args?.threadId, "threadId");
-      const message = reqString(args?.message, "message");
+      const parsed = validate(
+        z.object({
+          threadId: z.string().min(1).max(128),
+          message: z.string().min(1).max(50_000),
+        }),
+        args
+      );
+      const threadId = reqString(parsed.threadId, "threadId");
+      const message = reqString(parsed.message, "message");
       if (message.length > 50_000) throw new Error("message is too large.");
       return engineCall("threads.postMessage", { threadId, message });
     });
 
     ipcMain.handle("codemm:threads:generate", async (_evt, args) => {
-      const threadId = reqString(args?.threadId, "threadId");
+      const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
+      const threadId = reqString(parsed.threadId, "threadId");
       return engineCall("threads.generate", { threadId });
     });
 
     ipcMain.handle("codemm:threads:subscribeGeneration", async (_evt, args) => {
-      const threadId = reqString(args?.threadId, "threadId");
+      const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
+      const threadId = reqString(parsed.threadId, "threadId");
       return engineCall("threads.subscribeGeneration", { threadId });
     });
 
     ipcMain.handle("codemm:threads:unsubscribeGeneration", async (_evt, args) => {
-      const subId = reqString(args?.subId, "subId");
+      const parsed = validate(z.object({ subId: z.string().min(1).max(128) }), args);
+      const subId = reqString(parsed.subId, "subId");
       return engineCall("threads.unsubscribeGeneration", { subId });
     });
 
     // Activities
     ipcMain.handle("codemm:activities:get", async (_evt, args) => {
-      const id = reqString(args?.id, "id");
+      const parsed = validate(z.object({ id: z.string().min(1).max(128) }), args);
+      const id = reqString(parsed.id, "id");
       return engineCall("activities.get", { id });
     });
 
     ipcMain.handle("codemm:activities:patch", async (_evt, args) => {
-      const id = reqString(args?.id, "id");
-      const title = typeof args?.title === "string" ? args.title : undefined;
-      const timeLimitSeconds =
-        typeof args?.timeLimitSeconds === "number" && Number.isFinite(args.timeLimitSeconds)
-          ? Math.max(0, Math.min(8 * 60 * 60, Math.trunc(args.timeLimitSeconds)))
-          : args?.timeLimitSeconds === null
-            ? null
-            : undefined;
+      const parsed = validate(
+        z.object({
+          id: z.string().min(1).max(128),
+          title: z.string().max(200).optional(),
+          timeLimitSeconds: z.number().int().min(0).max(8 * 60 * 60).nullable().optional(),
+        }),
+        args
+      );
+      const id = reqString(parsed.id, "id");
+      const title = typeof parsed.title === "string" ? parsed.title : undefined;
+      const timeLimitSeconds = typeof parsed.timeLimitSeconds !== "undefined" ? parsed.timeLimitSeconds : undefined;
       return engineCall("activities.patch", { id, ...(typeof title !== "undefined" ? { title } : {}), ...(typeof timeLimitSeconds !== "undefined" ? { timeLimitSeconds } : {}) });
     });
 
     ipcMain.handle("codemm:activities:publish", async (_evt, args) => {
-      const id = reqString(args?.id, "id");
+      const parsed = validate(z.object({ id: z.string().min(1).max(128) }), args);
+      const id = reqString(parsed.id, "id");
       return engineCall("activities.publish", { id });
     });
 
     ipcMain.handle("codemm:activities:aiEdit", async (_evt, args) => {
-      const id = reqString(args?.id, "id");
-      const problemId = reqString(args?.problemId, "problemId");
-      const instruction = reqString(args?.instruction, "instruction");
+      const parsed = validate(
+        z.object({
+          id: z.string().min(1).max(128),
+          problemId: z.string().min(1).max(128),
+          instruction: z.string().min(1).max(8_000),
+        }),
+        args
+      );
+      const id = reqString(parsed.id, "id");
+      const problemId = reqString(parsed.problemId, "problemId");
+      const instruction = reqString(parsed.instruction, "instruction");
       if (instruction.length > 8_000) throw new Error("instruction is too large.");
       return engineCall("activities.aiEdit", { id, problemId, instruction });
     });
 
     // Judge (Docker-backed)
     ipcMain.handle("codemm:judge:run", async (_evt, args) => {
-      if (!isObject(args)) throw new Error("Invalid args.");
-      // Pass-through; engine performs validation and Docker sandboxing.
-      return engineCall("judge.run", args);
+      const parsed = validate(
+        z
+          .object({
+            language: z.enum(["java", "python", "cpp", "sql"]),
+            code: z.string().min(1).max(200_000).optional(),
+            files: z.record(z.string(), z.string()).optional(),
+            mainClass: z.string().min(1).max(256).optional(),
+            stdin: z.string().max(50_000).optional(),
+          })
+          .refine((v) => Boolean(v.code) !== Boolean(v.files), { message: 'Provide either "code" or "files".' }),
+        args
+      );
+      // Engine performs deeper validation and Docker sandboxing; main validates shapes + sizes only.
+      return engineCall("judge.run", parsed);
     });
 
     ipcMain.handle("codemm:judge:submit", async (_evt, args) => {
-      if (!isObject(args)) throw new Error("Invalid args.");
-      return engineCall("judge.submit", args);
+      const parsed = validate(
+        z
+          .object({
+            language: z.enum(["java", "python", "cpp", "sql"]).optional(),
+            testSuite: z.string().min(1).max(200_000),
+            code: z.string().min(1).max(200_000).optional(),
+            files: z.record(z.string(), z.string()).optional(),
+            activityId: z.string().min(1).max(128).optional(),
+            problemId: z.string().min(1).max(128).optional(),
+          })
+          .refine((v) => Boolean(v.code) !== Boolean(v.files), { message: 'Provide either "code" or "files".' }),
+        args
+      );
+      return engineCall("judge.submit", parsed);
     });
   }
 
@@ -903,6 +984,7 @@ async function createWindowAndBoot() {
     backendDir,
     env: {
       ...baseEnv,
+      ...(app.isPackaged ? { NODE_ENV: "production", CODEMM_ENGINE_USE_DIST: "1" } : {}),
       CODEMM_DB_PATH: engineDbPath,
       CODEMM_WORKSPACE_DIR: currentWorkspace.workspaceDir,
     },

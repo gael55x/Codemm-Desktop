@@ -30,6 +30,7 @@ This document describes what the desktop wrapper does (and does not do).
 - `CODEMM_BACKEND_DIR` default `apps/backend`
 - `CODEMM_FRONTEND_DIR` default `apps/frontend`
 - `CODEMM_FRONTEND_MODE=standalone` forces starting the built Next standalone server (instead of `next dev`) in dev.
+- `CODEMM_ENGINE_USE_DIST=1` forces the engine to load `apps/backend/dist/*` (instead of `ts-node` + `src/*`).
 - `DOCKER_PATH` optional path to the `docker` binary (helps for GUI-launched apps with a limited PATH)
 - `CODEMM_REBUILD_JUDGE=1` forces rebuilding judge Docker images on launch
 - `CODEMM_WORKSPACE_DIR` optional workspace folder override (skips folder picker)

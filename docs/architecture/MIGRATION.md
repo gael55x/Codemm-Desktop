@@ -37,9 +37,10 @@ Status (as of 2026-02-07):
 - Package production builds into the `.app` bundle.
 - Use Next standalone output (`apps/frontend/.next/standalone/server.js`) for packaged runs.
 
-Status (as of 2026-02-07):
+Status (as of 2026-02-08):
 - Frontend builds produce a standalone bundle (`output: "standalone"` + `prepare-standalone`).
 - IDE can boot the standalone frontend server when packaged (or when `CODEMM_FRONTEND_MODE=standalone`).
+- Packaged runs force the engine to load compiled `dist` (`CODEMM_ENGINE_USE_DIST=1`).
 
 ## Transitional Compatibility Rules
 
