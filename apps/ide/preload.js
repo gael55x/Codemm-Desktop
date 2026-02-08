@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("codemm", {
     create: (args) => ipcRenderer.invoke("codemm:threads:create", args),
     list: (args) => ipcRenderer.invoke("codemm:threads:list", args),
     get: (args) => ipcRenderer.invoke("codemm:threads:get", args),
+    setInstructions: (args) => ipcRenderer.invoke("codemm:threads:setInstructions", args),
     postMessage: (args) => ipcRenderer.invoke("codemm:threads:postMessage", args),
     generate: (args) => ipcRenderer.invoke("codemm:threads:generate", args),
     subscribeGeneration: async ({ threadId, onEvent }) => {
@@ -61,6 +62,7 @@ contextBridge.exposeInMainWorld("codemm", {
     },
   },
   activities: {
+    list: (args) => ipcRenderer.invoke("codemm:activities:list", args),
     get: (args) => ipcRenderer.invoke("codemm:activities:get", args),
     patch: (args) => ipcRenderer.invoke("codemm:activities:patch", args),
     publish: (args) => ipcRenderer.invoke("codemm:activities:publish", args),

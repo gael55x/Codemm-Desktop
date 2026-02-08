@@ -713,6 +713,18 @@ async function createWindowAndBoot() {
       return engineCall("threads.get", { threadId });
     });
 
+    ipcMain.handle("codemm:threads:setInstructions", async (_evt, args) => {
+      const parsed = validate(
+        z.object({
+          threadId: z.string().min(1).max(128),
+          instructions_md: z.string().max(8000).nullable(),
+        }),
+        args
+      );
+      const threadId = reqString(parsed.threadId, "threadId");
+      return engineCall("threads.setInstructions", { threadId, instructions_md: parsed.instructions_md });
+    });
+
     ipcMain.handle("codemm:threads:postMessage", async (_evt, args) => {
       const parsed = validate(
         z.object({
@@ -746,6 +758,19 @@ async function createWindowAndBoot() {
     });
 
     // Activities
+    ipcMain.handle("codemm:activities:list", async (_evt, args) => {
+      const parsed = validate(
+        z
+          .object({
+            limit: z.number().int().min(1).max(200).optional(),
+          })
+          .optional(),
+        args
+      );
+      const limit = typeof parsed?.limit === "number" ? parsed.limit : 30;
+      return engineCall("activities.list", { limit });
+    });
+
     ipcMain.handle("codemm:activities:get", async (_evt, args) => {
       const parsed = validate(z.object({ id: z.string().min(1).max(128) }), args);
       const id = reqString(parsed.id, "id");
