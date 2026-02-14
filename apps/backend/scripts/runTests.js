@@ -56,7 +56,8 @@ function main(argv) {
 
   // ts-node compilation dominates cost when Node runs each file in an isolated worker.
   // Running with no isolation keeps a single module cache and is significantly faster.
-  const nodeArgs = ["--test", "--test-isolation=none", "--test-concurrency=1", ...files];
+  // Note: Node's test runner flags vary across Node versions. Prefer broad compatibility.
+  const nodeArgs = ["--test", "--test-concurrency=1", ...files];
   const res = spawnSync(process.execPath, nodeArgs, { stdio: "inherit" });
   return res.status ?? 1;
 }
