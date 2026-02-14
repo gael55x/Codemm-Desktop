@@ -6,6 +6,7 @@ import {
   hasBrittleWhitespaceStringExpectations,
   isValidJUnit5TestSuite,
 } from "../languages/java/rules";
+import { assertJavaStructuralTopicRequirements } from "../languages/java/structuralTopics";
 import { diagnoseCppTestSuite, hasCppStdoutWrites, looksLikeCppTestSuiteCapturesStdout } from "../languages/cpp/rules";
 import { hasPythonStdoutWrites, isValidPytestTestSuiteForStyle } from "../languages/python/rules";
 import { GeneratedProblemDraftSchema, type GeneratedProblemDraft } from "../contracts/problem";
@@ -798,10 +799,11 @@ export async function generateSingleProblem(
         throw new Error(`Missing reference_solution for slot ${slot.index}.`);
       }
 
-      const constraints =
-        typeof raw.constraints === "string" && raw.constraints.trim()
-          ? raw.constraints.trim()
-          : slot.constraints;
+      const rawConstraints = typeof raw.constraints === "string" ? raw.constraints.trim() : "";
+      if (rawConstraints && rawConstraints !== slot.constraints) {
+        throw new Error(`Invalid constraints for slot ${slot.index}: must match slot.constraints exactly.`);
+      }
+      const constraints = slot.constraints;
 
       const sampleInputs = Array.isArray(raw.sample_inputs)
         ? (raw.sample_inputs as string[])
@@ -951,10 +953,11 @@ export async function generateSingleProblem(
         }
       }
 
-      const constraints =
-        typeof raw.constraints === "string" && raw.constraints.trim()
-          ? raw.constraints.trim()
-          : slot.constraints;
+      const rawConstraints = typeof raw.constraints === "string" ? raw.constraints.trim() : "";
+      if (rawConstraints && rawConstraints !== slot.constraints) {
+        throw new Error(`Invalid constraints for slot ${slot.index}: must match slot.constraints exactly.`);
+      }
+      const constraints = slot.constraints;
 
       const sampleInputs = Array.isArray(raw.sample_inputs)
         ? (raw.sample_inputs as string[])
@@ -1110,10 +1113,11 @@ export async function generateSingleProblem(
         throw new Error(`Missing reference_solution for slot ${slot.index}.`);
       }
 
-      const constraints =
-        typeof raw.constraints === "string" && raw.constraints.trim()
-          ? raw.constraints.trim()
-          : slot.constraints;
+      const rawConstraints = typeof raw.constraints === "string" ? raw.constraints.trim() : "";
+      if (rawConstraints && rawConstraints !== slot.constraints) {
+        throw new Error(`Invalid constraints for slot ${slot.index}: must match slot.constraints exactly.`);
+      }
+      const constraints = slot.constraints;
 
       const sampleInputs = Array.isArray(raw.sample_inputs)
         ? (raw.sample_inputs as string[])
@@ -1204,6 +1208,23 @@ export async function generateSingleProblem(
       // The real guardrail is Docker validation of the reference workspace against the test suite.
       // Overly strict string matching here causes repeated retries without improving correctness.
 
+      // Enforce structural topic requirements for selected Java OOP topics (deterministic, narrow).
+      try {
+        const refCombined = (raw.reference_workspace.files as any[])
+          .filter((f) => f && typeof f.content === "string")
+          .map((f) => String(f.content))
+          .join("\n\n");
+        assertJavaStructuralTopicRequirements({
+          topics: slot.topics,
+          referenceSource: refCombined,
+          testSuite,
+        });
+      } catch (e: any) {
+        throw new Error(
+          `Java topic structure validation failed for slot ${slot.index}: ${e?.message ?? String(e)}`
+        );
+      }
+
       // Ensure file constraints: at most one public class per file + filename matches public class.
       for (const file of raw.workspace.files as any[]) {
         if (!file || typeof file.path !== "string" || typeof file.content !== "string") continue;
@@ -1233,10 +1254,11 @@ export async function generateSingleProblem(
         }
       }
 
-      const constraints =
-        typeof raw.constraints === "string" && raw.constraints.trim()
-          ? raw.constraints.trim()
-          : slot.constraints;
+      const rawConstraints = typeof raw.constraints === "string" ? raw.constraints.trim() : "";
+      if (rawConstraints && rawConstraints !== slot.constraints) {
+        throw new Error(`Invalid constraints for slot ${slot.index}: must match slot.constraints exactly.`);
+      }
+      const constraints = slot.constraints;
 
       const sampleInputs = Array.isArray(raw.sample_inputs)
         ? (raw.sample_inputs as string[])
@@ -1368,10 +1390,24 @@ export async function generateSingleProblem(
       );
     }
 
-    const constraints =
-      typeof raw.constraints === "string" && raw.constraints.trim()
-        ? raw.constraints.trim()
-        : slot.constraints;
+    // Enforce structural topic requirements for selected Java OOP topics (deterministic, narrow).
+    try {
+      assertJavaStructuralTopicRequirements({
+        topics: slot.topics,
+        referenceSource: referenceSolution,
+        testSuite,
+      });
+    } catch (e: any) {
+      throw new Error(
+        `Java topic structure validation failed for slot ${slot.index}: ${e?.message ?? String(e)}`
+      );
+    }
+
+    const rawConstraints = typeof raw.constraints === "string" ? raw.constraints.trim() : "";
+    if (rawConstraints && rawConstraints !== slot.constraints) {
+      throw new Error(`Invalid constraints for slot ${slot.index}: must match slot.constraints exactly.`);
+    }
+    const constraints = slot.constraints;
 
     const sampleInputs = Array.isArray(raw.sample_inputs)
       ? (raw.sample_inputs as string[])
