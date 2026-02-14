@@ -27,19 +27,22 @@ function expandDifficultySlots(spec: ActivitySpec): Difficulty[] {
 }
 
 /**
- * Distribute topics across slots to maximize variety.
+ * Distribute topics across slots deterministically.
  *
- * Strategy (round-robin):
- * - Each slot gets 1-2 topics
- * - Rotate through topic_tags in a deterministic cycle
- * - First slot gets topics[0], maybe topics[1]
- * - Second slot gets topics[1], maybe topics[2], etc.
- *
- * For simplicity: assign exactly 1 primary topic per slot, cycling through the list.
- * If we have extra tags, we can assign a second topic to some slots.
+ * Strategy:
+ * - Always assign a primary topic via round-robin over topic_tags (or focusConcepts in guided mode).
+ * - For hard slots only, and only when we have at least 2 tags available, also assign a secondary
+ *   topic (next tag in the deterministic cycle) to encourage interacting constraints.
  */
-function distributTopics(spec: ActivitySpec, slotCount: number, focusConcepts?: string[] | null): string[][] {
-  const focus = Array.isArray(focusConcepts) ? focusConcepts.filter((t) => spec.topic_tags.includes(t)) : [];
+function distributeTopics(args: {
+  spec: ActivitySpec;
+  difficulties: Difficulty[];
+  focusConcepts?: string[] | null;
+}): string[][] {
+  const { spec, difficulties } = args;
+  const focus = Array.isArray(args.focusConcepts)
+    ? args.focusConcepts.filter((t: string) => spec.topic_tags.includes(t))
+    : [];
   const tags = focus.length > 0 ? focus : spec.topic_tags;
   if (tags.length === 0) {
     throw new Error("topic_tags cannot be empty when deriving ProblemPlan.");
@@ -47,15 +50,28 @@ function distributTopics(spec: ActivitySpec, slotCount: number, focusConcepts?: 
 
   const assignments: string[][] = [];
 
-  for (let i = 0; i < slotCount; i++) {
+  for (let i = 0; i < difficulties.length; i++) {
     const primary = tags[i % tags.length];
     if (!primary) {
       throw new Error("Failed to assign topic to slot.");
     }
 
-    // Optionally assign a second topic if we have enough tags and want variety.
-    // For now, keep it simple: 1 topic per slot, round-robin.
-    assignments.push([primary]);
+    const difficulty = difficulties[i] ?? "easy";
+    const wantsSecondary = difficulty === "hard" && tags.length >= 2;
+    if (!wantsSecondary) {
+      assignments.push([primary]);
+      continue;
+    }
+
+    const secondaryCandidate = tags[(i + 1) % tags.length];
+    const secondary =
+      secondaryCandidate && secondaryCandidate !== primary
+        ? secondaryCandidate
+        : tags[(i + 2) % tags.length] && tags[(i + 2) % tags.length] !== primary
+          ? tags[(i + 2) % tags.length]
+          : null;
+
+    assignments.push(secondary ? [primary, secondary] : [primary]);
   }
 
   return assignments;
@@ -81,7 +97,7 @@ export function deriveProblemPlan(spec: ActivitySpec, _pedagogyPolicy?: Pedagogy
 
   const policy = _pedagogyPolicy;
   const focus = policy?.mode === "guided" && Array.isArray(policy.focus_concepts) ? policy.focus_concepts : [];
-  const topicAssignments = distributTopics(spec, spec.problem_count, focus);
+  const topicAssignments = distributeTopics({ spec, difficulties, focusConcepts: focus });
 
   const slots: ProblemSlot[] = difficulties.map((difficulty, index) => {
     const topics = topicAssignments[index] ?? [];
