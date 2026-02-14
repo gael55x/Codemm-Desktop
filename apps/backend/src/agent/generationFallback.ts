@@ -38,6 +38,16 @@ function buildDifficultyPlan(counts: { easy: number; medium: number; hard: numbe
  * This MUST be auditable (caller persists trace entry).
  */
 export function proposeGenerationFallback(spec: ActivitySpec): GenerationFallbackDecision | null {
+  return proposeGenerationFallbackWithPolicy(spec, {});
+}
+
+export function proposeGenerationFallbackWithPolicy(
+  spec: ActivitySpec,
+  opts: { allowDowngradeDifficulty?: boolean; allowNarrowTopics?: boolean }
+): GenerationFallbackDecision | null {
+  const allowDowngradeDifficulty = opts.allowDowngradeDifficulty !== false;
+  const allowNarrowTopics = opts.allowNarrowTopics !== false;
+
   // 1) Prefer return-based checking: generally easier to specify and test deterministically.
   if (spec.problem_style !== "return") {
     return {
@@ -49,7 +59,7 @@ export function proposeGenerationFallback(spec: ActivitySpec): GenerationFallbac
   // 2) Reduce hard problems if present (hard → medium).
   const counts = getDifficultyCounts(spec);
   const total = spec.problem_count;
-  if (counts.hard > 0) {
+  if (allowDowngradeDifficulty && counts.hard > 0) {
     counts.medium += counts.hard;
     counts.hard = 0;
 
@@ -69,7 +79,7 @@ export function proposeGenerationFallback(spec: ActivitySpec): GenerationFallbac
   }
 
   // 3) Narrow topic scope if the list is large (reduces prompt breadth).
-  if (spec.topic_tags.length > 4) {
+  if (allowNarrowTopics && spec.topic_tags.length > 4) {
     return {
       patch: [setField(spec as any, "topic_tags", spec.topic_tags.slice(0, 3))],
       reason: "Narrowed topic scope to reduce prompt breadth and improve consistency.",

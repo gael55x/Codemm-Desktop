@@ -451,6 +451,11 @@ export default function Home() {
               return next;
             }
 
+            if (typed.type === "generation_soft_fallback_applied") {
+              setProgressHint(`Fallback applied: ${typed.reason}`);
+              return next;
+            }
+
             const getSlot = (slotIndex: number) => next.slots[slotIndex];
 
             if (typed.type === "slot_started") {

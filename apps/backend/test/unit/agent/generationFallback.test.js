@@ -3,7 +3,7 @@ require("../../helpers/setupBase");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { proposeGenerationFallback } = require("../../../src/agent/generationFallback");
+const { proposeGenerationFallback, proposeGenerationFallbackWithPolicy } = require("../../../src/agent/generationFallback");
 
 test("generation fallback: switches to return style first", () => {
   const spec = {
@@ -49,6 +49,26 @@ test("generation fallback: reduces hard to medium after return style", () => {
     { difficulty: "easy", count: 1 },
     { difficulty: "medium", count: 2 },
   ]);
+});
+
+test("generation fallback: preserves explicit hard intent when downgrade is disallowed", () => {
+  const spec = {
+    version: "1.0",
+    language: "java",
+    problem_count: 3,
+    difficulty_plan: [
+      { difficulty: "easy", count: 1 },
+      { difficulty: "hard", count: 2 },
+    ],
+    topic_tags: ["arrays"],
+    problem_style: "return",
+    constraints: "Java 17, JUnit 5, no package declarations.",
+    test_case_count: 8,
+  };
+
+  const d = proposeGenerationFallbackWithPolicy(spec, { allowDowngradeDifficulty: false, allowNarrowTopics: true });
+  // No other fallback steps apply (return style already set; topics already narrow).
+  assert.equal(d, null);
 });
 
 test("generation fallback: narrows topic scope when many tags", () => {

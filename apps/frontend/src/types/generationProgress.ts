@@ -13,6 +13,7 @@ export type GenerationProgressEvent =
   | { type: "slot_completed"; slotIndex: number }
   | { type: "generation_completed"; activityId: string }
   | { type: "generation_failed"; error: string; slotIndex?: number }
+  | { type: "generation_soft_fallback_applied"; reason: string; patchPaths: string[] }
   | { type: "heartbeat"; ts: string }
   // Backwards-compatible v1 events.
   | { type: "problem_started"; index: number; difficulty: Difficulty }

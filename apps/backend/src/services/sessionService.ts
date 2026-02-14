@@ -12,7 +12,7 @@ import { ActivitySpecDraftSchema, ensureFixedFields, isSpecCompleteForGeneration
 import { trace, traceText } from "../utils/trace";
 import { withTraceContext } from "../utils/traceContext";
 import type { ConfidenceMap } from "../agent/readiness";
-import { proposeGenerationFallback } from "../agent/generationFallback";
+import { proposeGenerationFallbackWithPolicy } from "../agent/generationFallback";
 import { GenerationSlotFailureError } from "../generation/errors";
 import { USER_EDITABLE_SPEC_KEYS, type UserEditableSpecKey } from "../agent/dialogue";
 import { publishGenerationProgress } from "../generation/progressBus";
@@ -690,6 +690,7 @@ export async function generateFromSession(
 
     const existingTrace = parseJsonArray(s.intent_trace_json);
     const existingConfidence = parseJsonObject(s.confidence_json) as ConfidenceMap;
+    const commitments = parseCommitmentsJson(s.commitments_json);
 
     const persistTraceEvent = (entry: Record<string, unknown>) => {
       const nextTrace = appendIntentTrace(existingTrace, entry);
@@ -821,10 +822,21 @@ export async function generateFromSession(
           });
 
           if (!usedFallback) {
-            const decision = proposeGenerationFallback(spec);
+            const explicitDifficultyLocked = commitments?.difficulty_plan?.locked === true;
+            const explicitTopicsLocked = commitments?.topic_tags?.locked === true;
+            const decision = proposeGenerationFallbackWithPolicy(spec, {
+              allowDowngradeDifficulty: !explicitDifficultyLocked,
+              allowNarrowTopics: !explicitTopicsLocked,
+            });
             if (decision) {
               usedFallback = true;
               appliedFallbackReason = decision.reason;
+
+              publishGenerationProgress(sessionId, {
+                type: "generation_soft_fallback_applied",
+                reason: decision.reason,
+                patchPaths: decision.patch.map((p) => p.path),
+              });
 
               persistTraceEvent({
                 ts: new Date().toISOString(),
