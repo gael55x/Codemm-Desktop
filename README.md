@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Codemm</h1>
-  <p>Codemm-Desktop is a local-only Electron desktop app that turns a short chat into verified programming activities (problems + tests) and grades solutions in Docker sandboxes.</p>
+  <p>Codemm is an AI agent that turns a short chat into verified programming activities (problems + tests) and grades solutions in Docker sandboxes.</p>
   <img src="./apps/frontend/images/Codemm-home.png" alt="Codemm home" width="900" />
 </div>
 
