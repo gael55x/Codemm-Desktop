@@ -4,15 +4,16 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 
-const { userDb } = require("../../../src/database");
 const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../src/services/sessionService");
 
 function installStubs(t) {
   const codex = require("../../../src/infra/llm/codemmProvider");
   const validator = require("../../../src/generation/referenceSolutionValidator");
+  const { LANGUAGE_PROFILES } = require("../../../src/languages/profiles");
   const originalCreateCodemm = codex.createCodemmCompletion;
   const originalCreateCodex = codex.createCodexCompletion;
   const originalValidate = validator.validateReferenceSolution;
+  const originalSqlJudge = LANGUAGE_PROFILES.sql?.judgeAdapter?.judge;
 
   let generationCall = 0;
 
@@ -21,7 +22,8 @@ function installStubs(t) {
     const lower = m.toLowerCase();
     const countMatch = lower.match(/\b(\d+)\s+(?:problems?|questions?)\b/);
     const count = countMatch ? Number(countMatch[1]) : 1;
-    const style = /\bmixed\b/.test(lower) ? "mixed" : /\bstdout\b/.test(lower) ? "stdout" : "return";
+    // SQL supports only stdout style in v1.
+    const style = "stdout";
     const topicsMatch = m.match(/\btopics?\s*:\s*([A-Za-z0-9 _-]+)/i);
     const topic = topicsMatch?.[1]?.trim().split(/[,\n]/)[0]?.trim() || "filtering";
     return { count, style, topic };
@@ -61,8 +63,8 @@ function installStubs(t) {
       reference_solution: "SELECT v FROM t WHERE id = 1 ORDER BY v;",
       test_suite: JSON.stringify(suite),
       constraints: "SQLite 3 (SQL dialect), read-only queries only, deterministic results (explicit ORDER BY when needed).",
-      sample_inputs: [],
-      sample_outputs: [],
+      sample_inputs: ["t rows: (id=1,v=0)"],
+      sample_outputs: ["v\\n0"],
       difficulty: "easy",
       topic_tag: "filtering",
     };
@@ -87,22 +89,36 @@ function installStubs(t) {
   codex.createCodexCompletion = stub;
 
   validator.validateReferenceSolution = async () => {};
+  if (LANGUAGE_PROFILES.sql?.judgeAdapter) {
+    // Avoid Docker in deterministic tests; gate should pass when baselines fail.
+    LANGUAGE_PROFILES.sql.judgeAdapter.judge = async () => ({
+      success: false,
+      passedTests: [],
+      failedTests: ["baseline"],
+      stdout: "",
+      stderr: "",
+      executionTimeMs: 1,
+      exitCode: 1,
+      timedOut: false,
+    });
+  }
 
   t.after(() => {
     codex.createCodemmCompletion = originalCreateCodemm;
     codex.createCodexCompletion = originalCreateCodex;
     validator.validateReferenceSolution = originalValidate;
+    if (LANGUAGE_PROFILES.sql?.judgeAdapter && typeof originalSqlJudge === "function") {
+      LANGUAGE_PROFILES.sql.judgeAdapter.judge = originalSqlJudge;
+    }
   });
 }
 
 test("e2e edge: missing difficulty requires confirmation, then 'yes' applies pending patch", async (t) => {
   installStubs(t);
 
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const userId = userDb.create(`e2e_edge_${suffix}`, `e2e_edge_${suffix}@example.com`, "hash");
-  const { sessionId } = createSession(userId, "practice");
+  const { sessionId } = createSession("practice");
 
-  const msg1 = await processSessionMessage(sessionId, "Create 4 problems in SQL with return style. Topics: filtering");
+  const msg1 = await processSessionMessage(sessionId, "Create 4 problems in SQL with stdout style. Topics: filtering");
   assert.equal(msg1.accepted, true);
   assert.equal(msg1.done, false);
   assert.equal(msg1.state, "CLARIFYING");
@@ -114,7 +130,7 @@ test("e2e edge: missing difficulty requires confirmation, then 'yes' applies pen
   assert.equal(msg2.done, true);
   assert.equal(msg2.state, "READY");
 
-  const gen = await generateFromSession(sessionId, userId);
+  const gen = await generateFromSession(sessionId);
   assert.equal(gen.problems.length, 4);
 
   const s = getSession(sessionId);
@@ -124,11 +140,9 @@ test("e2e edge: missing difficulty requires confirmation, then 'yes' applies pen
 test("e2e edge: problem_count > 7 (without difficulty) does not complete the spec", async (t) => {
   installStubs(t);
 
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const userId = userDb.create(`e2e_edge2_${suffix}`, `e2e_edge2_${suffix}@example.com`, "hash");
-  const { sessionId } = createSession(userId, "practice");
+  const { sessionId } = createSession("practice");
 
-  const msg = await processSessionMessage(sessionId, "Create 8 problems in SQL with return style. Topics: filtering");
+  const msg = await processSessionMessage(sessionId, "Create 8 problems in SQL with stdout style. Topics: filtering");
   assert.equal(msg.accepted, true);
   assert.equal(msg.done, false);
   assert.equal(msg.state, "CLARIFYING");
@@ -138,17 +152,15 @@ test("e2e edge: problem_count > 7 (without difficulty) does not complete the spe
 test("e2e edge: problem_count > 7 with difficulty shorthand clamps to 7", async (t) => {
   installStubs(t);
 
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const userId = userDb.create(`e2e_edge3_${suffix}`, `e2e_edge3_${suffix}@example.com`, "hash");
-  const { sessionId } = createSession(userId, "practice");
+  const { sessionId } = createSession("practice");
 
-  const msg = await processSessionMessage(sessionId, "Create 8 easy problems in SQL with return style. Topics: filtering");
+  const msg = await processSessionMessage(sessionId, "Create 8 easy problems in SQL with stdout style. Topics: filtering");
   assert.equal(msg.accepted, true);
   assert.equal(msg.done, true);
   assert.equal(msg.state, "READY");
   assert.equal(msg.spec.problem_count, 7);
 
-  const gen = await generateFromSession(sessionId, userId);
+  const gen = await generateFromSession(sessionId);
   assert.equal(gen.problems.length, 7);
 
   const s = getSession(sessionId);

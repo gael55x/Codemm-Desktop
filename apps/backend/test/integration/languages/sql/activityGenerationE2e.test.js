@@ -4,15 +4,17 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 
-const { userDb, activityDb } = require("../../../../src/database");
+const { activityDb } = require("../../../../src/database");
 const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../../src/services/sessionService");
 
 function installStubs(t, language) {
   const codex = require("../../../../src/infra/llm/codemmProvider");
   const validator = require("../../../../src/generation/referenceSolutionValidator");
+  const { LANGUAGE_PROFILES } = require("../../../../src/languages/profiles");
   const originalCreateCodemm = codex.createCodemmCompletion;
   const originalCreateCodex = codex.createCodexCompletion;
   const originalValidate = validator.validateReferenceSolution;
+  const originalJudge = LANGUAGE_PROFILES[language]?.judgeAdapter?.judge;
 
   /** @type {{system: string, user: string}[]} */
   const calls = [];
@@ -24,7 +26,8 @@ function installStubs(t, language) {
     const lower = m.toLowerCase();
     const countMatch = lower.match(/\b(\d+)\s+(?:problems?|questions?)\b/);
     const count = countMatch ? Number(countMatch[1]) : 1;
-    const style = /\bmixed\b/.test(lower) ? "mixed" : /\bstdout\b/.test(lower) ? "stdout" : "return";
+    // SQL supports only stdout style in v1.
+    const style = "stdout";
     const topicsMatch = m.match(/\btopics?\s*:\s*([A-Za-z0-9 _-]+)/i);
     const topic = topicsMatch?.[1]?.trim().split(/[,\n]/)[0]?.trim() || "filtering";
     return { count, style, topic };
@@ -64,8 +67,8 @@ function installStubs(t, language) {
       reference_solution: "SELECT v FROM t WHERE id = 1 ORDER BY v;",
       test_suite: JSON.stringify(suite),
       constraints: "SQLite 3 (SQL dialect), read-only queries only, deterministic results (explicit ORDER BY when needed).",
-      sample_inputs: [],
-      sample_outputs: [],
+      sample_inputs: ["t rows: (id=1,v=0)"],
+      sample_outputs: ["v\\n0"],
       difficulty: "easy",
       topic_tag: "filtering",
     };
@@ -92,11 +95,27 @@ function installStubs(t, language) {
   codex.createCodexCompletion = stub;
 
   validator.validateReferenceSolution = async () => {};
+  if (LANGUAGE_PROFILES[language]?.judgeAdapter) {
+    // Avoid Docker in deterministic tests; gate should pass when baselines fail.
+    LANGUAGE_PROFILES[language].judgeAdapter.judge = async () => ({
+      success: false,
+      passedTests: [],
+      failedTests: ["baseline"],
+      stdout: "",
+      stderr: "",
+      executionTimeMs: 1,
+      exitCode: 1,
+      timedOut: false,
+    });
+  }
 
   t.after(() => {
     codex.createCodemmCompletion = originalCreateCodemm;
     codex.createCodexCompletion = originalCreateCodex;
     validator.validateReferenceSolution = originalValidate;
+    if (LANGUAGE_PROFILES[language]?.judgeAdapter && typeof originalJudge === "function") {
+      LANGUAGE_PROFILES[language].judgeAdapter.judge = originalJudge;
+    }
   });
 
   return { calls };
@@ -105,18 +124,15 @@ function installStubs(t, language) {
 test("e2e activity generation (sql): 2/4/7 problems across stdout/return/mixed", async (t) => {
   const { calls } = installStubs(t, "sql");
 
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const userId = userDb.create(`e2e_sql_${suffix}`, `e2e_sql_${suffix}@example.com`, "hash");
-
   const counts = [2, 4, 7];
-  const styles = ["stdout", "return", "mixed"];
+  const styles = ["stdout"];
 
   for (const problem_count of counts) {
     for (const style of styles) {
       await t.test(`count=${problem_count} style=${style}`, async () => {
         calls.length = 0;
 
-        const { sessionId } = createSession(userId, "practice");
+        const { sessionId } = createSession("practice");
         const prompt = `Create ${problem_count} easy problems in SQL with ${style} style. Topics: filtering`;
 
         const msgRes = await processSessionMessage(sessionId, prompt);
@@ -127,7 +143,7 @@ test("e2e activity generation (sql): 2/4/7 problems across stdout/return/mixed",
         assert.equal(msgRes.spec.problem_count, problem_count);
         assert.equal(msgRes.spec.problem_style, style);
 
-        const genRes = await generateFromSession(sessionId, userId);
+        const genRes = await generateFromSession(sessionId);
         assert.ok(genRes.activityId);
         assert.equal(genRes.problems.length, problem_count);
         for (const p of genRes.problems) {

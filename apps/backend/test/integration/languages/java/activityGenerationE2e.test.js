@@ -4,15 +4,17 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 
-const { userDb, activityDb } = require("../../../../src/database");
+const { activityDb } = require("../../../../src/database");
 const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../../src/services/sessionService");
 
 function installStubs(t, language) {
   const codex = require("../../../../src/infra/llm/codemmProvider");
   const validator = require("../../../../src/generation/referenceSolutionValidator");
+  const { LANGUAGE_PROFILES } = require("../../../../src/languages/profiles");
   const originalCreateCodemm = codex.createCodemmCompletion;
   const originalCreateCodex = codex.createCodexCompletion;
   const originalValidate = validator.validateReferenceSolution;
+  const originalJudge = LANGUAGE_PROFILES[language]?.judgeAdapter?.judge;
 
   /** @type {{system: string, user: string}[]} */
   const calls = [];
@@ -82,8 +84,8 @@ public class AdderTest {
 }
 `.trim(),
       constraints: "Java 17, JUnit 5, no package declarations.",
-      sample_inputs: [],
-      sample_outputs: [],
+      sample_inputs: ["a=1, b=2"],
+      sample_outputs: ["3"],
       difficulty: "easy",
       topic_tag: "arrays",
     };
@@ -113,11 +115,27 @@ public class AdderTest {
   codex.createCodexCompletion = stub;
 
   validator.validateReferenceSolution = async () => {};
+  if (LANGUAGE_PROFILES[language]?.judgeAdapter) {
+    // Avoid Docker in deterministic tests; gate should pass when baselines fail.
+    LANGUAGE_PROFILES[language].judgeAdapter.judge = async () => ({
+      success: false,
+      passedTests: [],
+      failedTests: ["baseline"],
+      stdout: "",
+      stderr: "",
+      executionTimeMs: 1,
+      exitCode: 1,
+      timedOut: false,
+    });
+  }
 
   t.after(() => {
     codex.createCodemmCompletion = originalCreateCodemm;
     codex.createCodexCompletion = originalCreateCodex;
     validator.validateReferenceSolution = originalValidate;
+    if (LANGUAGE_PROFILES[language]?.judgeAdapter && typeof originalJudge === "function") {
+      LANGUAGE_PROFILES[language].judgeAdapter.judge = originalJudge;
+    }
   });
 
   return { calls };
@@ -125,9 +143,6 @@ public class AdderTest {
 
 test("e2e activity generation (java): 2/4/7 problems across stdout/return/mixed", async (t) => {
   const { calls } = installStubs(t, "java");
-
-  const suffix = crypto.randomUUID().slice(0, 8);
-  const userId = userDb.create(`e2e_java_${suffix}`, `e2e_java_${suffix}@example.com`, "hash");
 
   const counts = [2, 4, 7];
   const styles = ["stdout", "return", "mixed"];
@@ -137,7 +152,7 @@ test("e2e activity generation (java): 2/4/7 problems across stdout/return/mixed"
       await t.test(`count=${problem_count} style=${style}`, async () => {
         calls.length = 0;
 
-        const { sessionId } = createSession(userId, "practice");
+        const { sessionId } = createSession("practice");
         const prompt = `Create ${problem_count} easy problems in Java with ${style} style. Topics: arrays`;
 
         const msgRes = await processSessionMessage(sessionId, prompt);
@@ -148,7 +163,7 @@ test("e2e activity generation (java): 2/4/7 problems across stdout/return/mixed"
         assert.equal(msgRes.spec.problem_count, problem_count);
         assert.equal(msgRes.spec.problem_style, style);
 
-        const genRes = await generateFromSession(sessionId, userId);
+        const genRes = await generateFromSession(sessionId);
         assert.ok(genRes.activityId);
         assert.equal(genRes.problems.length, problem_count);
         for (const p of genRes.problems) {

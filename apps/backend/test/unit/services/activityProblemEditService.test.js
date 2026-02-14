@@ -25,8 +25,8 @@ def test_case_7(): assert solve("line\\nbreak") == 10
 def test_case_8(): assert solve("x" * 20) == 20
 `,
     constraints: "Python 3.11, pytest, standard library only, no filesystem access, no networking, time limit enforced.",
-    sample_inputs: [],
-    sample_outputs: [],
+    sample_inputs: ['s = "abc"'],
+    sample_outputs: ["3"],
     difficulty: "easy",
     topic_tag: "strings",
   };
@@ -51,8 +51,8 @@ def test_case_8(): assert solve("x" * 20) == 20
 `,
     reference_solution: "def solve(s: str) -> int:\n    return len(s.replace(' ', ''))\n",
     constraints: "WRONG-CONSTRAINTS",
-    sample_inputs: [],
-    sample_outputs: [],
+    sample_inputs: ['s = "a a"'],
+    sample_outputs: ["2"],
     difficulty: "hard",
     topic_tag: "wrong",
   };
@@ -107,8 +107,8 @@ public class SumArrayTest {
 }
 `.trim(),
     constraints: "Java 17, JUnit 5, no package declarations.",
-    sample_inputs: [],
-    sample_outputs: [],
+    sample_inputs: ["a=[1,2,3]"],
+    sample_outputs: ["6"],
     difficulty: "easy",
     topic_tag: "arrays",
   };
@@ -164,8 +164,8 @@ public class WidgetTest {
       entrypoint: "Main",
     },
     constraints: existing.constraints,
-    sample_inputs: [],
-    sample_outputs: [],
+    sample_inputs: ["a=[1,2,3]"],
+    sample_outputs: ["6"],
     difficulty: existing.difficulty,
     topic_tag: existing.topic_tag,
   };
@@ -206,8 +206,8 @@ def test_case_7(): assert solve(2147483646) == 2147483647
 def test_case_8(): assert solve(5) == 6
 `,
     constraints: "Python 3.11, pytest, deterministic.",
-    sample_inputs: [],
-    sample_outputs: [],
+    sample_inputs: ["x=0"],
+    sample_outputs: ["1"],
     difficulty: "easy",
     topic_tag: "math",
   };
@@ -263,8 +263,8 @@ def test_case_7(): assert solve(2147483647) == 2147483647
 def test_case_8(): assert solve(5) == 5
 `,
     constraints: "Python 3.11, pytest, deterministic.",
-    sample_inputs: [],
-    sample_outputs: [],
+    sample_inputs: ["x=5"],
+    sample_outputs: ["5"],
     difficulty: "easy",
     topic_tag: "math",
   };
@@ -317,8 +317,8 @@ public class AdderTest {
       entrypoint: "Main",
     },
     constraints: "Java 17, JUnit 5, no package declarations.",
-    sample_inputs: [],
-    sample_outputs: [],
+    sample_inputs: ["a=1, b=2"],
+    sample_outputs: ["3"],
     difficulty: "easy",
     topic_tag: "math",
   };

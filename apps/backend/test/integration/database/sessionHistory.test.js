@@ -4,28 +4,30 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 
-const { userDb, sessionDb, sessionMessageDb } = require("../../../src/database");
+const { threadDb, threadMessageDb } = require("../../../src/database");
 const { createSession } = require("../../../src/services/sessionService");
 
-test("sessionDb.listSummariesByUserId returns recent sessions with message counts", async () => {
-  const userId = userDb.create("history_user", "history_user@example.com", "hash");
-
-  const s1 = createSession(userId, "practice");
-  sessionMessageDb.create(crypto.randomUUID(), s1.sessionId, "user", "first session message");
+test("threadDb.listSummaries returns recent threads with message counts", async () => {
+  const s1 = createSession("practice");
+  threadMessageDb.create(crypto.randomUUID(), s1.sessionId, "user", "first session message");
 
   await new Promise((r) => setTimeout(r, 1100));
 
-  const s2 = createSession(userId, "guided");
-  sessionMessageDb.create(crypto.randomUUID(), s2.sessionId, "user", "second session message");
+  const s2 = createSession("guided");
+  threadMessageDb.create(crypto.randomUUID(), s2.sessionId, "user", "second session message");
 
-  const res = sessionDb.listSummariesByUserId(userId, 10);
-  assert.equal(res.length, 2);
+  const res = threadDb.listSummaries(50);
+  const idx2 = res.findIndex((t) => t.id === s2.sessionId);
+  const idx1 = res.findIndex((t) => t.id === s1.sessionId);
+  assert.ok(idx2 >= 0, "Expected s2 in summaries");
+  assert.ok(idx1 >= 0, "Expected s1 in summaries");
+  assert.ok(idx2 < idx1, "Expected s2 to be more recent than s1");
 
-  assert.equal(res[0].id, s2.sessionId);
-  assert.equal(res[0].message_count, 1);
-  assert.equal(res[0].last_message, "second session message");
+  assert.equal(res[idx2].id, s2.sessionId);
+  assert.equal(res[idx2].message_count, 1);
+  assert.equal(res[idx2].last_message, "second session message");
 
-  assert.equal(res[1].id, s1.sessionId);
-  assert.equal(res[1].message_count, 1);
-  assert.equal(res[1].last_message, "first session message");
+  assert.equal(res[idx1].id, s1.sessionId);
+  assert.equal(res[idx1].message_count, 1);
+  assert.equal(res[idx1].last_message, "first session message");
 });

@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const { execSync } = require("node:child_process");
 
-const { userDb, activityDb } = require("../../../src/database");
+const { activityDb } = require("../../../src/database");
 const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../src/services/sessionService");
 
 /**
@@ -128,9 +128,6 @@ function registerRealActivityGenerationE2e({ provider }) {
 
       preflightOrThrow();
 
-      const suffix = crypto.randomUUID().slice(0, 8);
-      const userId = userDb.create(`e2e_real_${suffix}`, `e2e_real_${suffix}@example.com`, "hash");
-
       const summaryRows = [];
       try {
         for (const language of languages) {
@@ -172,7 +169,7 @@ function registerRealActivityGenerationE2e({ provider }) {
                   // difficultyPlanParser will deterministically set difficulty_plan and problem_count from "easy:N".
                   const prompt = `Language: ${language}\nStyle: ${style}\nTopics: ${topic}\nDifficulty: easy:${count}`;
 
-                  const { sessionId } = createSession(userId, "practice");
+                  const { sessionId } = createSession("practice");
                   const msg = await processSessionMessage(sessionId, prompt);
                   assert.equal(msg.accepted, true);
                   assert.equal(msg.done, true);
@@ -181,7 +178,7 @@ function registerRealActivityGenerationE2e({ provider }) {
                   assert.equal(msg.spec.problem_count, count);
                   assert.equal(msg.spec.problem_style, style);
 
-                  const generated = await generateFromSession(sessionId, userId);
+                  const generated = await generateFromSession(sessionId);
                   row.activityId = generated.activityId;
                   assert.ok(generated.activityId);
                   assert.equal(generated.problems.length, count);
