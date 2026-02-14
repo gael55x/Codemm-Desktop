@@ -40,6 +40,7 @@ test("generation progress: emits per-slot event ordering", async () => {
     deps: {
       generateSingleProblem: async () => ({ draft, meta: { llmOutputHash: "x" } }),
       validateReferenceSolution: async () => {},
+      runTestStrengthGate: async () => {},
     },
   });
 

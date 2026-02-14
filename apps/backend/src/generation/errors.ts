@@ -6,6 +6,7 @@ export type GenerationFailureKind =
   | "tests"
   | "timeout"
   | "contract"
+  | "quality"
   | "llm"
   | "unknown";
 

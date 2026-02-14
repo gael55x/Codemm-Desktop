@@ -79,6 +79,7 @@ public class GraphAlgo {
     deps: {
       generateSingleProblem: async () => ({ draft: { ...baseDraft, id: `p${n++}` }, meta: { llmOutputHash: "x" } }),
       validateReferenceSolution: async () => {},
+      runTestStrengthGate: async () => {},
     },
   });
 

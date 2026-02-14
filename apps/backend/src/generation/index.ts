@@ -11,6 +11,7 @@ import { GenerationContractError, GenerationSlotFailureError, type GenerationFai
 import type { GenerationProgressEvent } from "../contracts/generationProgress";
 import type { SlotPromptContext } from "../languages/types";
 import { applyGuidedScaffoldingAsync } from "./scaffolding";
+import { runTestStrengthGate, TestStrengthGateError } from "./testStrengthGate";
 
 /**
  * Discard reference_solution from GeneratedProblemDraft to produce GeneratedProblem.
@@ -52,6 +53,7 @@ export async function generateProblemsFromPlan(
     deps?: {
       generateSingleProblem?: typeof generateSingleProblem;
       validateReferenceSolution?: typeof validateReferenceSolution;
+      runTestStrengthGate?: typeof runTestStrengthGate;
     };
   }
 ): Promise<{ problems: GeneratedProblem[]; outcomes: GenerationOutcome[] }> {
@@ -65,11 +67,12 @@ export async function generateProblemsFromPlan(
 
   const problems: GeneratedProblem[] = initialCount ? [...resumeProblems.slice(0, initialCount)] : [];
   const outcomes: GenerationOutcome[] = initialCount ? [...resumeOutcomes.slice(0, initialCount)] : [];
-  const defaultMaxAttempts = 5;
+  const defaultMaxAttempts = 3;
   const onProgress = opts?.onProgress;
   const onCheckpoint = opts?.onCheckpoint;
   const generateSingleProblemFn = opts?.deps?.generateSingleProblem ?? generateSingleProblem;
   const validateReferenceSolutionFn = opts?.deps?.validateReferenceSolution ?? validateReferenceSolution;
+  const runTestStrengthGateFn = opts?.deps?.runTestStrengthGate ?? runTestStrengthGate;
   const usedDomains: string[] = [];
   const usedTitles: string[] = [];
   const customInstructionsMd = (() => {
@@ -197,6 +200,9 @@ export async function generateProblemsFromPlan(
         onProgress?.({ type: "validation_started", index: slot.index, attempt: attempts });
         await validateReferenceSolutionFn(draft);
 
+        // Step 2B: Deterministic test strength gate (reject trivial baselines)
+        await runTestStrengthGateFn(draft, slot);
+
         // Step 3: If guided pedagogy is present, derive the student-facing code/workspace
         // deterministically from the validated reference artifact.
         const finalizedDraft = slot.pedagogy
@@ -230,6 +236,21 @@ export async function generateProblemsFromPlan(
           };
         }
 
+        if (err instanceof TestStrengthGateError) {
+          onProgress?.({
+            type: "slot_contract_failed",
+            slotIndex: slot.index,
+            attempt: attempts,
+            shortError: "Test strength gate failed.",
+          });
+          onProgress?.({ type: "attempt_failed", index: slot.index, attempt: attempts, phase: "generate" });
+          // Treat as a contract-equivalent failure to trigger targeted regeneration.
+          repair = {
+            ...(lastDraft ? { previousRaw: JSON.stringify(lastDraft).slice(0, 2400) } : {}),
+            errorMessage: err.message,
+          };
+        }
+
         if (err instanceof ReferenceSolutionValidationError && lastDraft) {
           onProgress?.({
             type: "slot_docker_validation_failed",
@@ -247,7 +268,7 @@ export async function generateProblemsFromPlan(
           };
           trace("generation.attempt.repair", { slotIndex: slot.index, attempts, exitCode: err.exitCode });
         } else {
-          if (!(err instanceof GenerationContractError)) {
+          if (!(err instanceof GenerationContractError) && !(err instanceof TestStrengthGateError)) {
             onProgress?.({ type: "attempt_failed", index: slot.index, attempt: attempts, phase: "generate" });
             repair = undefined;
           }
@@ -260,6 +281,8 @@ export async function generateProblemsFromPlan(
               ? err.kind
               : err instanceof GenerationContractError
               ? "contract"
+              : err instanceof TestStrengthGateError
+              ? "quality"
               : /Invalid test_suite|schema validation|public class|Test suite class name/i.test(String(err?.message))
               ? "contract"
               : "unknown";

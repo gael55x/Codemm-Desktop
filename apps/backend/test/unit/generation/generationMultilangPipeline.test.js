@@ -198,7 +198,7 @@ public class SumArrayTest {
   };
 
   const result = await generateProblemsFromPlan(plan, {
-    deps: { generateSingleProblem, validateReferenceSolution },
+    deps: { generateSingleProblem, validateReferenceSolution, runTestStrengthGate: async () => {} },
   });
 
   assert.equal(result.problems.length, 4);
