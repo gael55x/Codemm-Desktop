@@ -5,6 +5,7 @@ import { buildDefaultClassSkeleton, inferClassName } from "../utils/javaCodegen"
 import {
   hasBrittleWhitespaceStringExpectations,
   isValidJUnit5TestSuite,
+  javaTestSuiteCapturesStdout,
 } from "../languages/java/rules";
 import { assertJavaStructuralTopicRequirements } from "../languages/java/structuralTopics";
 import { diagnoseCppTestSuite, hasCppStdoutWrites, looksLikeCppTestSuiteCapturesStdout } from "../languages/cpp/rules";
@@ -14,11 +15,11 @@ import type { ProblemSlot } from "../planner/types";
 import { buildSlotPromptWithContext, getSystemPromptForSlot } from "./prompts";
 import { trace, traceText } from "../utils/trace";
 import { GenerationContractError } from "./errors";
-import { getTopLevelPublicTypeNames, javaUsesStdin } from "../utils/javaSource";
+import { getTopLevelPublicTypeNames, javaUsesStdout } from "../utils/javaSource";
 import type { SlotPromptContext } from "../languages/types";
 import { coerceSqlTestSuiteToJsonString } from "../languages/sql/rules";
-import { ObligationViolationError, shouldForbidStdinForSlot, type ObligationId } from "./obligations";
-import { demoteExtraTopLevelPublicTypes, rewriteJavaTopLevelPublicClassName } from "../utils/javaRewrite";
+import { ObligationViolationError, type ObligationId } from "./obligations";
+import { demoteExtraTopLevelPublicTypes, promoteOneTopLevelTypeToPublic, rewriteJavaTopLevelPublicClassName } from "../utils/javaRewrite";
 
 const CODEX_MODEL = process.env.CODEX_MODEL;
 const MAX_TOKENS = 5000;
@@ -397,6 +398,45 @@ Return JSON: {"test_suite":"..."} only.
 
 function sha256(text: string): string {
   return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+function coerceNonEmptySamplePairs(
+  raw: any,
+  fallbackLabel: string
+): { sampleInputs: string[]; sampleOutputs: string[]; changed: boolean } {
+  const placeholder = "(see problem description)";
+  const rawInputs = Array.isArray(raw?.sample_inputs) ? raw.sample_inputs : [];
+  const rawOutputs = Array.isArray(raw?.sample_outputs) ? raw.sample_outputs : [];
+
+  const inputs = rawInputs
+    .map((x: any) => String(x ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 10);
+  const outputs = rawOutputs
+    .map((x: any) => String(x ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 10);
+
+  let nextInputs = inputs;
+  let nextOutputs = outputs;
+  let changed = false;
+
+  if (nextInputs.length === 0) {
+    nextInputs = [`${fallbackLabel}: ${placeholder}`];
+    changed = true;
+  }
+  if (nextOutputs.length === 0) {
+    nextOutputs = [placeholder];
+    changed = true;
+  }
+
+  if (nextInputs.length !== nextOutputs.length) {
+    nextInputs = [nextInputs[0] ?? `${fallbackLabel}: ${placeholder}`];
+    nextOutputs = [nextOutputs[0] ?? placeholder];
+    changed = true;
+  }
+
+  return { sampleInputs: nextInputs, sampleOutputs: nextOutputs, changed };
 }
 
 function inferPrimaryClassName(starterCode: string, fallback: string): string {
@@ -857,13 +897,9 @@ export async function generateSingleProblem(
       }
       const constraints = slot.constraints;
 
-      const sampleInputs = Array.isArray(raw.sample_inputs)
-        ? (raw.sample_inputs as string[])
-        : [];
-
-      const sampleOutputs = Array.isArray(raw.sample_outputs)
-        ? (raw.sample_outputs as string[])
-        : [];
+      const samples = coerceNonEmptySamplePairs(raw, "example input");
+      const sampleInputs = samples.sampleInputs;
+      const sampleOutputs = samples.sampleOutputs;
 
       const difficulty = slot.difficulty;
       const topicTag = slot.topics[0] ?? "oop";
@@ -1011,13 +1047,9 @@ export async function generateSingleProblem(
       }
       const constraints = slot.constraints;
 
-      const sampleInputs = Array.isArray(raw.sample_inputs)
-        ? (raw.sample_inputs as string[])
-        : [];
-
-      const sampleOutputs = Array.isArray(raw.sample_outputs)
-        ? (raw.sample_outputs as string[])
-        : [];
+      const samples = coerceNonEmptySamplePairs(raw, "example input");
+      const sampleInputs = samples.sampleInputs;
+      const sampleOutputs = samples.sampleOutputs;
 
       const difficulty = slot.difficulty;
       const topicTag = slot.topics[0] ?? "oop";
@@ -1171,13 +1203,9 @@ export async function generateSingleProblem(
       }
       const constraints = slot.constraints;
 
-      const sampleInputs = Array.isArray(raw.sample_inputs)
-        ? (raw.sample_inputs as string[])
-        : [];
-
-      const sampleOutputs = Array.isArray(raw.sample_outputs)
-        ? (raw.sample_outputs as string[])
-        : [];
+      const samples = coerceNonEmptySamplePairs(raw, "example input");
+      const sampleInputs = samples.sampleInputs;
+      const sampleOutputs = samples.sampleOutputs;
 
       const difficulty = slot.difficulty;
       const topicTag = slot.topics[0] ?? "oop";
@@ -1269,23 +1297,6 @@ export async function generateSingleProblem(
         }
       }
 
-      const forbidStdin = shouldForbidStdinForSlot(slot);
-      if (forbidStdin) {
-        const all = [
-          testSuite,
-          ...(Array.isArray(raw.workspace.files) ? raw.workspace.files.map((f: any) => String(f?.content ?? "")) : []),
-          ...(Array.isArray(raw.reference_workspace.files)
-            ? raw.reference_workspace.files.map((f: any) => String(f?.content ?? ""))
-            : []),
-        ].join("\n\n");
-        if (javaUsesStdin(all)) {
-          throw new ObligationViolationError(
-            "stdin reads are not allowed for this slot (use pure methods + deterministic tests).",
-            { obligationId: "java.no_stdin" }
-          );
-        }
-      }
-
       // Do not require tests to explicitly reference the target type at contract-time.
       // The real guardrail is Docker validation of the reference workspace against the test suite.
       // Overly strict string matching here causes repeated retries without improving correctness.
@@ -1319,6 +1330,20 @@ export async function generateSingleProblem(
         throw new ObligationViolationError(
           `Java topic structure validation failed for slot ${slot.index}: ${innerMsg}`,
           { obligationId: mapped ?? fallback }
+        );
+      }
+
+      // stdout-only enforcement: reference + tests must be output-driven (not return-only).
+      if (!javaUsesStdout((raw.reference_workspace.files as any[]).map((f: any) => String(f?.content ?? "")).join("\n\n"))) {
+        throw new ObligationViolationError(
+          "For stdout-style Java problems, reference solution must write the final answer to stdout (System.out.print/println/printf).",
+          { obligationId: "java.stdout_solution_prints" }
+        );
+      }
+      if (!javaTestSuiteCapturesStdout(testSuite)) {
+        throw new ObligationViolationError(
+          "For stdout-style Java problems, test_suite must capture stdout and assert on the printed output.",
+          { obligationId: "java.stdout_tests_capture" }
         );
       }
 
@@ -1381,13 +1406,12 @@ export async function generateSingleProblem(
       }
       const constraints = slot.constraints;
 
-      const sampleInputs = Array.isArray(raw.sample_inputs)
-        ? (raw.sample_inputs as string[])
-        : [];
-
-      const sampleOutputs = Array.isArray(raw.sample_outputs)
-        ? (raw.sample_outputs as string[])
-        : [];
+      const samples = coerceNonEmptySamplePairs(raw, "stdin");
+      const sampleInputs = samples.sampleInputs;
+      const sampleOutputs = samples.sampleOutputs;
+      if (samples.changed) {
+        rewrites.push({ id: "samples.autofill", applied: true, detail: "Filled missing/mismatched sample_inputs/sample_outputs." });
+      }
 
       const difficulty = slot.difficulty;
       const topicTag = slot.topics[0] ?? "oop";
@@ -1459,11 +1483,23 @@ export async function generateSingleProblem(
       className = inferPrimaryClassName(starterCode, `Problem${slot.index + 1}`);
     }
 
-    const starterPublicTypes = getTopLevelPublicTypeNames(starterCode);
+    let starterPublicTypes = getTopLevelPublicTypeNames(starterCode);
     if (starterPublicTypes.length > 1) {
       throw new ObligationViolationError("starter_code must not declare more than one top-level public type.", {
         obligationId: "java.single_public_type_per_unit",
       });
+    }
+    if (starterPublicTypes.length === 0) {
+      const promoted = promoteOneTopLevelTypeToPublic(starterCode, { keepName: className });
+      if (promoted.changed) {
+        starterCode = promoted.source;
+        rewrites.push({
+          id: "java.promote_public_type",
+          applied: true,
+          detail: `Promoted top-level type "${promoted.promotedName ?? className}" to public.`,
+        });
+        starterPublicTypes = getTopLevelPublicTypeNames(starterCode);
+      }
     }
     if (starterPublicTypes.length === 0) {
       throw new ObligationViolationError("starter_code must declare exactly one top-level public type.", {
@@ -1536,11 +1572,23 @@ export async function generateSingleProblem(
       }
     }
 
-    const refPublicTypes = getTopLevelPublicTypeNames(referenceSolution);
+    let refPublicTypes = getTopLevelPublicTypeNames(referenceSolution);
     if (refPublicTypes.length > 1) {
       throw new ObligationViolationError("reference_solution must not declare more than one top-level public type.", {
         obligationId: "java.single_public_type_per_unit",
       });
+    }
+    if (refPublicTypes.length === 0) {
+      const promoted = promoteOneTopLevelTypeToPublic(referenceSolution, { keepName: className });
+      if (promoted.changed) {
+        referenceSolution = promoted.source;
+        rewrites.push({
+          id: "java.promote_public_type",
+          applied: true,
+          detail: `Promoted top-level type "${promoted.promotedName ?? className}" to public in reference_solution.`,
+        });
+        refPublicTypes = getTopLevelPublicTypeNames(referenceSolution);
+      }
     }
     if (refPublicTypes.length === 0) {
       throw new ObligationViolationError("reference_solution must declare exactly one top-level public type.", {
@@ -1558,14 +1606,6 @@ export async function generateSingleProblem(
       throw new ObligationViolationError('reference_solution must not include "while(false)" (unreachable statement).', {
         obligationId: "java.no_while_false",
       });
-    }
-
-    const forbidStdin = shouldForbidStdinForSlot(slot);
-    if (forbidStdin && (javaUsesStdin(starterCode) || javaUsesStdin(referenceSolution) || javaUsesStdin(testSuite))) {
-      throw new ObligationViolationError(
-        "stdin reads are not allowed for this slot (use pure methods + deterministic tests).",
-        { obligationId: "java.no_stdin" }
-      );
     }
 
     // Ensure reference solution matches class name (prefer public class too)
@@ -1600,19 +1640,32 @@ export async function generateSingleProblem(
       );
     }
 
+    // stdout-only enforcement: reference + tests must be output-driven (not return-only).
+    if (!javaUsesStdout(referenceSolution)) {
+      throw new ObligationViolationError(
+        "For stdout-style Java problems, reference_solution must write the final answer to stdout (System.out.print/println/printf).",
+        { obligationId: "java.stdout_solution_prints" }
+      );
+    }
+    if (!javaTestSuiteCapturesStdout(testSuite)) {
+      throw new ObligationViolationError(
+        "For stdout-style Java problems, test_suite must capture stdout and assert on the printed output.",
+        { obligationId: "java.stdout_tests_capture" }
+      );
+    }
+
     const rawConstraints = typeof raw.constraints === "string" ? raw.constraints.trim() : "";
     if (rawConstraints && rawConstraints !== slot.constraints) {
       throw new Error(`Invalid constraints for slot ${slot.index}: must match slot.constraints exactly.`);
     }
     const constraints = slot.constraints;
 
-    const sampleInputs = Array.isArray(raw.sample_inputs)
-      ? (raw.sample_inputs as string[])
-      : [];
-
-    const sampleOutputs = Array.isArray(raw.sample_outputs)
-      ? (raw.sample_outputs as string[])
-      : [];
+    const samples = coerceNonEmptySamplePairs(raw, "stdin");
+    const sampleInputs = samples.sampleInputs;
+    const sampleOutputs = samples.sampleOutputs;
+    if (samples.changed) {
+      rewrites.push({ id: "samples.autofill", applied: true, detail: "Filled missing/mismatched sample_inputs/sample_outputs." });
+    }
 
     const difficulty = slot.difficulty;
     const topicTag = slot.topics[0] ?? "oop";

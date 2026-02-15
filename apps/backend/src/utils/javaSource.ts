@@ -292,6 +292,12 @@ export type TopLevelPublicTypeDecl = {
   publicEnd: number;
 };
 
+export type TopLevelTypeDecl = {
+  name: string;
+  keyword: "class" | "interface" | "enum" | "record";
+  keywordStart: number;
+};
+
 /**
  * Returns top-level public type declarations (including source indices for the `public` token).
  *
@@ -457,6 +463,131 @@ export function getTopLevelPublicTypeDecls(source: string): TopLevelPublicTypeDe
   return decls;
 }
 
+/**
+ * Returns top-level type declarations (public or non-public) with source indices for the type keyword.
+ *
+ * Intended for deterministic, mechanical rewrite passes (e.g. promoting one type to `public`).
+ */
+export function getTopLevelTypeDecls(source: string): TopLevelTypeDecl[] {
+  const decls: TopLevelTypeDecl[] = [];
+
+  const state: ScanState = {
+    inLineComment: false,
+    inBlockComment: false,
+    inString: false,
+    inChar: false,
+    escaped: false,
+  };
+
+  const typeKeywords = new Set(["class", "interface", "enum", "record"] as const);
+
+  let depth = 0;
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i]!;
+
+    if (state.inLineComment) {
+      if (ch === "\n") state.inLineComment = false;
+      i++;
+      continue;
+    }
+    if (state.inBlockComment) {
+      if (ch === "*" && source[i + 1] === "/") {
+        state.inBlockComment = false;
+        i += 2;
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    if (state.inString) {
+      if (state.escaped) {
+        state.escaped = false;
+      } else if (ch === "\\") {
+        state.escaped = true;
+      } else if (ch === "\"") {
+        state.inString = false;
+      }
+      i++;
+      continue;
+    }
+    if (state.inChar) {
+      if (state.escaped) {
+        state.escaped = false;
+      } else if (ch === "\\") {
+        state.escaped = true;
+      } else if (ch === "'") {
+        state.inChar = false;
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === "/" && source[i + 1] === "/") {
+      state.inLineComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      state.inBlockComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "\"") {
+      state.inString = true;
+      i++;
+      continue;
+    }
+    if (ch === "'") {
+      state.inChar = true;
+      i++;
+      continue;
+    }
+
+    if (ch === "{") {
+      depth++;
+      i++;
+      continue;
+    }
+    if (ch === "}") {
+      depth = Math.max(0, depth - 1);
+      i++;
+      continue;
+    }
+
+    if (depth !== 0) {
+      i++;
+      continue;
+    }
+
+    if (!isWordStart(ch)) {
+      i++;
+      continue;
+    }
+
+    const w = readWord(source, i);
+    if (!w) {
+      i++;
+      continue;
+    }
+    const wordStart = i;
+    i = w.next;
+
+    if (!typeKeywords.has(w.word as any)) continue;
+
+    const keyword = w.word as TopLevelTypeDecl["keyword"];
+    let j = skipWhitespace(source, i);
+    const nameWord = readWord(source, j);
+    if (nameWord?.word) {
+      decls.push({ name: nameWord.word, keyword, keywordStart: wordStart });
+    }
+    i = nameWord?.next ?? j;
+  }
+
+  return decls;
+}
+
 export function stripJavaCommentsAndStrings(source: string): string {
   const state: ScanState = {
     inLineComment: false,
@@ -565,4 +696,9 @@ export function javaUsesStdin(source: string): boolean {
     /\bInputStreamReader\s*\(\s*System\s*\.\s*in\s*\)/.test(s) ||
     /\bnew\s+BufferedReader\s*\(\s*new\s+InputStreamReader\s*\(\s*System\s*\.\s*in\s*\)\s*\)/.test(s)
   );
+}
+
+export function javaUsesStdout(source: string): boolean {
+  const s = stripJavaCommentsAndStrings(String(source ?? ""));
+  return /\bSystem\s*\.\s*out\s*\.\s*(?:print|println|printf|write)\s*\(/.test(s);
 }

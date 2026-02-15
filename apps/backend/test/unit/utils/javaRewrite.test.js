@@ -3,7 +3,7 @@ require("../../helpers/setupBase");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { demoteExtraTopLevelPublicTypes, rewriteJavaTopLevelPublicClassName } = require("../../../src/utils/javaRewrite");
+const { demoteExtraTopLevelPublicTypes, promoteOneTopLevelTypeToPublic, rewriteJavaTopLevelPublicClassName } = require("../../../src/utils/javaRewrite");
 const { getTopLevelPublicTypeNames, javaUsesStdin } = require("../../../src/utils/javaSource");
 
 test("java rewrite: demotes extra top-level public types (keeps first concrete type)", () => {
@@ -65,10 +65,21 @@ public class ReservationManagerTest {
   assert.match(r.source, /\bpublic\s+class\s+TableTest\b/);
 });
 
+test("java rewrite: promotes a top-level type to public when none are public", () => {
+  const src = `
+class Billing { }
+interface PricingPlan { }
+`.trim();
+
+  const r = promoteOneTopLevelTypeToPublic(src, { keepName: "Billing" });
+  assert.equal(r.changed, true);
+  assert.equal(r.promotedName, "Billing");
+  assert.deepEqual(getTopLevelPublicTypeNames(r.source), ["Billing"]);
+});
+
 test("java io: stdin detection ignores comments and strings", () => {
   assert.equal(javaUsesStdin('System.out.println("System.in");'), false);
   assert.equal(javaUsesStdin("// System.in\nclass X {}"), false);
   assert.equal(javaUsesStdin("/* new Scanner(System.in) */\nclass X {}"), false);
   assert.equal(javaUsesStdin("class X { void f(){ new java.util.Scanner(System.in); } }"), true);
 });
-

@@ -18,32 +18,42 @@ function installJavaGeneratorStub(t) {
     description: "Compute billing cost.",
     starter_code: `
 public class Billing {
-  public int solve(String plan, int minutes) {
+  public void solve(String plan, int minutes) {
     // TODO
-    return 0;
+    System.out.println(0);
   }
 }
 `.trim(),
     reference_solution: `
 public class Billing {
-  public int solve(String plan, int minutes) {
-    return minutes;
+  public void solve(String plan, int minutes) {
+    System.out.println(minutes);
   }
 }
 `.trim(),
     test_suite: `
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
+import java.io.*;
 
 public class BillingTest {
-  @Test void test_case_1(){ assertEquals(3, new Billing().solve("basic", 3)); }
-  @Test void test_case_2(){ assertEquals(3, new Billing().solve("premium", 3)); }
-  @Test void test_case_3(){ assertEquals(0, new Billing().solve("basic", 0)); }
-  @Test void test_case_4(){ assertEquals(0, new Billing().solve("premium", 0)); }
-  @Test void test_case_5(){ assertEquals(1, new Billing().solve("basic", 1)); }
-  @Test void test_case_6(){ assertEquals(1, new Billing().solve("premium", 1)); }
-  @Test void test_case_7(){ assertEquals(2, new Billing().solve("basic", 2)); }
-  @Test void test_case_8(){ assertEquals(2, new Billing().solve("premium", 2)); }
+  private String run(String plan, int minutes) {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    PrintStream prev = System.out;
+    System.setOut(new PrintStream(out));
+    try { new Billing().solve(plan, minutes); }
+    finally { System.setOut(prev); }
+    return out.toString().trim();
+  }
+
+  @Test void test_case_1(){ assertEquals("3", run("basic", 3)); }
+  @Test void test_case_2(){ assertEquals("3", run("premium", 3)); }
+  @Test void test_case_3(){ assertEquals("0", run("basic", 0)); }
+  @Test void test_case_4(){ assertEquals("0", run("premium", 0)); }
+  @Test void test_case_5(){ assertEquals("1", run("basic", 1)); }
+  @Test void test_case_6(){ assertEquals("1", run("premium", 1)); }
+  @Test void test_case_7(){ assertEquals("2", run("basic", 2)); }
+  @Test void test_case_8(){ assertEquals("2", run("premium", 2)); }
 }
 `.trim(),
     constraints: "Java 17, JUnit 5, no package declarations.",
@@ -59,9 +69,9 @@ public class BillingTest {
     description: "Compute billing cost.",
     starter_code: `
 public class Billing {
-  public int solve(String plan, int minutes) {
+  public void solve(String plan, int minutes) {
     // TODO
-    return 0;
+    System.out.println(0);
   }
 }
 
@@ -79,9 +89,9 @@ class PremiumPlan implements PricingPlan {
 `.trim(),
     reference_solution: `
 public class Billing {
-  public int solve(String plan, int minutes) {
+  public void solve(String plan, int minutes) {
     PricingPlan p = plan.equals("premium") ? new PremiumPlan() : new BasicPlan();
-    return p.cost(minutes);
+    System.out.println(p.cost(minutes));
   }
 }
 
@@ -100,16 +110,26 @@ class PremiumPlan implements PricingPlan {
     test_suite: `
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
+import java.io.*;
 
 public class BillingTest {
   @Test void test_case_1(){ PricingPlan p = new BasicPlan(); assertEquals(3, p.cost(3)); }
   @Test void test_case_2(){ PricingPlan p = new PremiumPlan(); assertEquals(6, p.cost(3)); }
-  @Test void test_case_3(){ assertEquals(3, new Billing().solve("basic", 3)); }
-  @Test void test_case_4(){ assertEquals(6, new Billing().solve("premium", 3)); }
-  @Test void test_case_5(){ assertEquals(0, new Billing().solve("basic", 0)); }
-  @Test void test_case_6(){ assertEquals(0, new Billing().solve("premium", 0)); }
-  @Test void test_case_7(){ assertEquals(1, new Billing().solve("basic", 1)); }
-  @Test void test_case_8(){ assertEquals(2, new Billing().solve("premium", 1)); }
+  private String run(String plan, int minutes) {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    PrintStream prev = System.out;
+    System.setOut(new PrintStream(out));
+    try { new Billing().solve(plan, minutes); }
+    finally { System.setOut(prev); }
+    return out.toString().trim();
+  }
+
+  @Test void test_case_3(){ assertEquals("3", run("basic", 3)); }
+  @Test void test_case_4(){ assertEquals("6", run("premium", 3)); }
+  @Test void test_case_5(){ assertEquals("0", run("basic", 0)); }
+  @Test void test_case_6(){ assertEquals("0", run("premium", 0)); }
+  @Test void test_case_7(){ assertEquals("1", run("basic", 1)); }
+  @Test void test_case_8(){ assertEquals("2", run("premium", 1)); }
 }
 `.trim(),
     constraints: "Java 17, JUnit 5, no package declarations.",
@@ -147,7 +167,7 @@ test("generation: java structural topic violation triggers retry and can recover
       language: "java",
       difficulty: "hard",
       topics: ["polymorphism"],
-      problem_style: "return",
+      problem_style: "stdout",
       constraints: "Java 17, JUnit 5, no package declarations.",
       test_case_count: 8,
     },
@@ -163,4 +183,3 @@ test("generation: java structural topic violation triggers retry and can recover
   assert.equal(result.problems.length, 1);
   assert.equal(getCalls(), 2);
 });
-

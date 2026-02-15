@@ -1,4 +1,4 @@
-import { getTopLevelPublicTypeDecls, type TopLevelPublicTypeDecl } from "./javaSource";
+import { getTopLevelPublicTypeDecls, getTopLevelTypeDecls, type TopLevelPublicTypeDecl, type TopLevelTypeDecl } from "./javaSource";
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -71,7 +71,33 @@ export function rewriteJavaTopLevelPublicClassName(args: {
   return { source: out, changed: out !== src, previousName: prev };
 }
 
+function choosePromotedDecl(decls: TopLevelTypeDecl[], keepName?: string | null): TopLevelTypeDecl | null {
+  if (keepName) {
+    const exact = decls.find((d) => d.name === keepName);
+    if (exact) return exact;
+  }
+  const preferred = decls.find((d) => d.keyword !== "interface");
+  return preferred ?? decls[0] ?? null;
+}
+
+export function promoteOneTopLevelTypeToPublic(
+  source: string,
+  opts?: { keepName?: string | null }
+): { source: string; changed: boolean; promotedName?: string } {
+  const src = String(source ?? "");
+  const publicDecls = getTopLevelPublicTypeDecls(src);
+  if (publicDecls.length >= 1) return { source: src, changed: false };
+
+  const decls = getTopLevelTypeDecls(src);
+  const chosen = choosePromotedDecl(decls, opts?.keepName ?? null);
+  if (!chosen) return { source: src, changed: false };
+
+  const insertAt = chosen.keywordStart;
+  const out = src.slice(0, insertAt) + "public " + src.slice(insertAt);
+  return { source: out, changed: out !== src, promotedName: chosen.name };
+}
+
 export const __test__ = {
   chooseKeptDecl,
+  choosePromotedDecl,
 };
-

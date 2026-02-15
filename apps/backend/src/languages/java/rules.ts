@@ -65,3 +65,17 @@ export function isValidJUnit5TestSuite(testSuite: string, expectedTestCount: num
   if (!hasNonTrivialAssertions(testSuite)) return false;
   return true;
 }
+
+export function javaTestSuiteCapturesStdout(testSuite: string): boolean {
+  const ts = String(testSuite ?? "");
+  // Deterministic, narrow signal: tests should redirect System.out to a buffer and assert on it.
+  const captures =
+    /\bByteArrayOutputStream\b/.test(ts) ||
+    /\bSystem\s*\.\s*setOut\s*\(/.test(ts) ||
+    /\bnew\s+PrintStream\s*\(/.test(ts);
+
+  if (!captures) return false;
+
+  // Require evidence that the captured bytes are read (assertions are already required by `isValidJUnit5TestSuite()`).
+  return /\btoString\s*\(\s*\)/.test(ts) || /\btoByteArray\s*\(\s*\)/.test(ts);
+}

@@ -18,6 +18,11 @@ Hard requirements:
   - EITHER the legacy single-file shape (starter_code + reference_solution)
   - OR the workspace shape (workspace + reference_workspace).
 
+Product checking mode (stdout-only):
+- Codemm checks ONLY what is printed to stdout.
+- reference_solution MUST print the final answer to stdout (System.out.print/println/printf).
+- test_suite MUST capture stdout and assert on the printed output (do not rely on return values).
+
 Test suite requirements:
 - Exactly 8 @Test methods
 - Import org.junit.jupiter.api.Test and static org.junit.jupiter.api.Assertions.*
@@ -161,6 +166,7 @@ Critical rules:
 - workspace.files must include exactly 2 files: Main.java + one target class file
 - test_suite MUST test the target class (NOT Main)
 - reference_workspace must be a complete, working solution workspace that passes all tests
+- stdout-only: tests MUST capture System.out and assert on the printed output; reference code MUST print the final answer.
 - Avoid whitespace-padding edge cases unless you explicitly define normalization; do not assertEquals against string literals with leading/trailing spaces.
 - Each .java file must declare at most ONE top-level public type; if present, it must match the filename.
 - All Java code must have NO package declarations
@@ -196,6 +202,7 @@ Critical rules:
 - test_suite must have exactly 8 @Test methods
 - reference_solution must be a complete, working solution that passes all tests
 - starter_code should be the same class with method signatures but TODOs instead of implementation
+- stdout-only: tests MUST capture System.out and assert on the printed output; reference_solution MUST print the final answer.
 - Avoid whitespace-padding edge cases unless you explicitly define normalization; do not assertEquals against string literals with leading/trailing spaces.
 	- starter_code and reference_solution must declare at most ONE top-level public type.
 	- All Java code must have NO package declarations

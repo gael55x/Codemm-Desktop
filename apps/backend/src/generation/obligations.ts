@@ -5,12 +5,13 @@ export type ObligationId =
   | "java.test_class_matches_target"
   | "java.primary_type_matches_target"
   | "java.no_while_false"
-  | "java.no_stdin"
   | "java.structural_topic.polymorphism"
   | "java.structural_topic.inheritance"
   | "java.structural_topic.abstraction"
   | "java.structural_topic.encapsulation"
   | "java.structural_topic.composition"
+  | "java.stdout_solution_prints"
+  | "java.stdout_tests_capture"
   | "tests.reject_baselines"
   | "retry.substantive_change_required";
 
@@ -43,6 +44,7 @@ function hasStructuralTopic(topics: string[], topic: string): boolean {
 }
 
 export function shouldForbidStdinForSlot(slot: ProblemSlot): boolean {
+  if (slot.language === "java") return false;
   // Codemm's judge harness is JUnit/pytest-style (not interactive). To keep judging deterministic,
   // we treat "stdout/return/mixed" problems as non-stdin by default.
   const style = String(slot.problem_style ?? "").toLowerCase();
@@ -61,7 +63,8 @@ export function deriveSlotObligations(slot: ProblemSlot): ObligationId[] {
     out.push("java.test_class_matches_target");
     out.push("java.primary_type_matches_target");
     out.push("java.no_while_false");
-    if (shouldForbidStdinForSlot(slot)) out.push("java.no_stdin");
+    out.push("java.stdout_solution_prints");
+    out.push("java.stdout_tests_capture");
 
     if (hasStructuralTopic(slot.topics, "polymorphism")) out.push("java.structural_topic.polymorphism");
     if (hasStructuralTopic(slot.topics, "inheritance")) out.push("java.structural_topic.inheritance");
