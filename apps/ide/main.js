@@ -1502,12 +1502,7 @@ async function createWindowAndBoot() {
               font-size: 13px;
               line-height: 1.5;
             }
-            .row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
-            .progress {
-              margin-top: 14px;
-              display: grid;
-              gap: 10px;
-            }
+            .progress { margin-top: 14px; display: grid; gap: 10px; }
             .bar {
               height: 10px;
               border-radius: 999px;
@@ -1535,35 +1530,14 @@ async function createWindowAndBoot() {
               animation: shimmer 1.1s ease-in-out infinite;
             }
             @keyframes shimmer { 0% { background-position: 0% 0%; } 100% { background-position: 180% 0%; } }
-            .rows {
-              margin-top: 4px;
-              display: grid;
-              gap: 10px;
-            }
-            .item {
-              display: grid;
-              grid-template-columns: 1fr auto;
-              gap: 10px;
-              align-items: center;
-            }
-            .label {
-              color: rgba(226, 232, 240, 0.70);
-              font-size: 12px;
-            }
-            .pct {
+            .meta {
+              display: flex;
+              justify-content: space-between;
+              gap: 12px;
               color: rgba(226, 232, 240, 0.58);
               font-size: 12px;
               font-variant-numeric: tabular-nums;
             }
-            .spinner {
-              width: 20px;
-              height: 20px;
-              border-radius: 999px;
-              border: 2px solid rgba(148, 163, 184, 0.28);
-              border-top-color: rgba(56, 189, 248, 0.95);
-              animation: spin 0.9s linear infinite;
-            }
-            @keyframes spin { to { transform: rotate(360deg); } }
             .hint {
               margin-top: 12px;
               color: rgba(226, 232, 240, 0.60);
@@ -1592,29 +1566,12 @@ async function createWindowAndBoot() {
             <div class="main">
               <div class="card">
                 <p class="headline" id="headline">Launching…</p>
-                <div class="sub" id="sub">Starting the engine and preparing the interface.</div>
-                <div class="row">
-                  <div class="spinner" aria-hidden="true"></div>
-                  <div class="sub">Just a moment</div>
-                </div>
+                <div class="sub" id="status">Starting the engine and preparing the interface.</div>
                 <div class="progress" aria-label="Startup progress">
-                  <div class="bar" aria-hidden="true"><div class="fill" id="overallFill"></div></div>
-                  <div class="rows" aria-hidden="true">
-                    <div class="item">
-                      <div class="label">Dependencies</div>
-                      <div class="pct" id="depsPct">0%</div>
-                    </div>
-                    <div class="bar"><div class="fill" id="depsFill"></div></div>
-                    <div class="item">
-                      <div class="label">Docker judge</div>
-                      <div class="pct" id="judgePct">0%</div>
-                    </div>
-                    <div class="bar"><div class="fill" id="judgeFill"></div></div>
-                    <div class="item">
-                      <div class="label">Engine + UI</div>
-                      <div class="pct" id="appPct">0%</div>
-                    </div>
-                    <div class="bar"><div class="fill" id="appFill"></div></div>
+                  <div class="bar" aria-hidden="true"><div class="fill" id="fill"></div></div>
+                  <div class="meta" aria-hidden="true">
+                    <div id="step">Preparing…</div>
+                    <div id="pct">0%</div>
                   </div>
                 </div>
                 <div class="hint">First launch may take longer while Docker images are prepared.</div>
@@ -1631,11 +1588,10 @@ async function createWindowAndBoot() {
 
               var state = {
                 headline: "Launching…",
-                sub: "Starting the engine and preparing the interface.",
-                overall: 0,
-                deps: { pct: 0, indeterminate: false },
-                judge: { pct: 0, indeterminate: false },
-                app: { pct: 0, indeterminate: false },
+                status: "Starting the engine and preparing the interface.",
+                step: "Preparing…",
+                pct: 0,
+                indeterminate: false,
               };
 
               function setText(id, text) {
@@ -1658,36 +1614,32 @@ async function createWindowAndBoot() {
 
               function render() {
                 setText("headline", state.headline);
-                setText("sub", state.sub);
-                setBar("overallFill", state.overall, false);
-
-                setText("depsPct", clamp(state.deps.pct) + "%");
-                setText("judgePct", clamp(state.judge.pct) + "%");
-                setText("appPct", clamp(state.app.pct) + "%");
-
-                setBar("depsFill", state.deps.pct, state.deps.indeterminate);
-                setBar("judgeFill", state.judge.pct, state.judge.indeterminate);
-                setBar("appFill", state.app.pct, state.app.indeterminate);
+                setText("status", state.status);
+                setText("step", state.step);
+                setText("pct", clamp(state.pct) + "%");
+                setBar("fill", state.pct, state.indeterminate);
               }
 
               window.__codemmSplashUpdate = function (patch) {
                 try {
                   if (patch && typeof patch === "object") {
                     if (typeof patch.headline === "string") state.headline = patch.headline;
-                    if (typeof patch.sub === "string") state.sub = patch.sub;
-                    if (typeof patch.overall !== "undefined") state.overall = clamp(patch.overall);
+                    if (typeof patch.status === "string") state.status = patch.status;
+                    if (typeof patch.step === "string") state.step = patch.step;
+                    if (typeof patch.pct !== "undefined") state.pct = clamp(patch.pct);
+                    if (typeof patch.indeterminate === "boolean") state.indeterminate = patch.indeterminate;
 
-                    if (patch.deps && typeof patch.deps === "object") {
-                      if (typeof patch.deps.pct !== "undefined") state.deps.pct = clamp(patch.deps.pct);
-                      if (typeof patch.deps.indeterminate === "boolean") state.deps.indeterminate = patch.deps.indeterminate;
+                    // Back-compat with earlier patch shapes.
+                    if (typeof patch.sub === "string") state.status = patch.sub;
+                    if (typeof patch.overall !== "undefined") state.pct = clamp(patch.overall);
+                    if (patch.deps && typeof patch.deps === "object" && typeof patch.deps.indeterminate === "boolean") {
+                      state.indeterminate = patch.deps.indeterminate;
                     }
-                    if (patch.judge && typeof patch.judge === "object") {
-                      if (typeof patch.judge.pct !== "undefined") state.judge.pct = clamp(patch.judge.pct);
-                      if (typeof patch.judge.indeterminate === "boolean") state.judge.indeterminate = patch.judge.indeterminate;
+                    if (patch.judge && typeof patch.judge === "object" && typeof patch.judge.indeterminate === "boolean") {
+                      state.indeterminate = patch.judge.indeterminate;
                     }
-                    if (patch.app && typeof patch.app === "object") {
-                      if (typeof patch.app.pct !== "undefined") state.app.pct = clamp(patch.app.pct);
-                      if (typeof patch.app.indeterminate === "boolean") state.app.indeterminate = patch.app.indeterminate;
+                    if (patch.app && typeof patch.app === "object" && typeof patch.app.indeterminate === "boolean") {
+                      state.indeterminate = patch.app.indeterminate;
                     }
                   }
                 } catch (e) {}
@@ -1721,9 +1673,10 @@ async function createWindowAndBoot() {
     if (!app.isPackaged) {
       splashUpdate({
         headline: "Launching…",
-        sub: "Checking dependencies",
-        overall: 5,
-        deps: { indeterminate: true },
+        status: "Checking dependencies…",
+        step: "Dependencies",
+        pct: 5,
+        indeterminate: true,
       });
       const ok = await ensureNodeModules({ dir: repoRoot, label: "repo", env: baseEnv });
       if (!ok) {
@@ -1734,7 +1687,7 @@ async function createWindowAndBoot() {
         app.quit();
         return;
       }
-      splashUpdate({ overall: 10, deps: { pct: 100, indeterminate: false } });
+      splashUpdate({ pct: 12, indeterminate: false });
     }
   }
 
@@ -1742,9 +1695,10 @@ async function createWindowAndBoot() {
   {
     console.log("[ide] Ensuring judge Docker images...");
     splashUpdate({
-      sub: "Preparing Docker judge",
-      overall: 15,
-      judge: { indeterminate: true },
+      status: "Preparing Docker judge…",
+      step: "Docker judge",
+      pct: 18,
+      indeterminate: true,
     });
     const judgeContextDir = materializeJudgeBuildContext({ backendDir, userDataDir: storage.userDataDir });
     const ok = await ensureJudgeImages({ dockerBin, backendDir: judgeContextDir, env: baseEnv });
@@ -1756,15 +1710,16 @@ async function createWindowAndBoot() {
       app.quit();
       return;
     }
-    splashUpdate({ overall: 60, judge: { pct: 100, indeterminate: false } });
+    splashUpdate({ pct: 62, indeterminate: false });
   }
 
   // Start engine (workspace).
   console.log("[ide] Starting engine (IPC)...");
   splashUpdate({
-    sub: "Starting engine",
-    overall: 65,
-    app: { pct: 10, indeterminate: true },
+    status: "Starting engine…",
+    step: "Engine",
+    pct: 68,
+    indeterminate: true,
   });
   if (!app.isPackaged) {
     console.log(`[ide] Engine nodeBin=${resolveNodeBin()}`);
@@ -1814,7 +1769,7 @@ async function createWindowAndBoot() {
   try {
     await backendProc.call("engine.ping", {});
     console.log("[ide] Engine is ready (IPC)");
-    splashUpdate({ overall: 75, app: { pct: 40, indeterminate: true } });
+    splashUpdate({ pct: 78, indeterminate: false });
   } catch (err) {
     dialog.showErrorBox("Engine Failed To Start", String(err?.message || err));
     backendProc.shutdown();
@@ -1929,7 +1884,7 @@ async function createWindowAndBoot() {
     }
   });
 
-  splashUpdate({ sub: "Starting UI", overall: 85, app: { pct: 70, indeterminate: true } });
+  splashUpdate({ status: "Starting UI…", step: "UI", pct: 86, indeterminate: true });
   console.log(`[ide] Waiting for frontend health: ${frontendUrl}/codemm/health`);
   const frontendReady = await waitForFrontendReady(frontendUrl, { token: frontendToken, timeoutMs: 180_000 });
   if (!frontendReady) {
@@ -1950,7 +1905,7 @@ async function createWindowAndBoot() {
   console.log("[ide] Frontend is ready; loading UI...");
   frontendLoaded = true;
   clearTimeout(splashTimer);
-  splashUpdate({ sub: "Finalizing…", overall: 98, app: { pct: 95, indeterminate: true } });
+  splashUpdate({ status: "Finalizing…", step: "Finishing up", pct: 98, indeterminate: true });
   await win.loadURL(frontendUrl);
   // Show the window once the real UI is ready to paint.
   try {
@@ -1958,7 +1913,7 @@ async function createWindowAndBoot() {
   } catch {
     // ignore
   }
-  splashUpdate({ overall: 100, app: { pct: 100, indeterminate: false } });
+  splashUpdate({ pct: 100, indeterminate: false });
 
   const cleanup = () => {
     killProcessTree(frontendProc);
