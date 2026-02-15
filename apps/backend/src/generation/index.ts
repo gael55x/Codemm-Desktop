@@ -12,6 +12,7 @@ import type { GenerationProgressEvent } from "../contracts/generationProgress";
 import type { SlotPromptContext } from "../languages/types";
 import { applyGuidedScaffoldingAsync } from "./scaffolding";
 import { runTestStrengthGate, TestStrengthGateError } from "./testStrengthGate";
+import { deriveSlotObligations } from "./obligations";
 
 /**
  * Discard reference_solution from GeneratedProblemDraft to produce GeneratedProblem.
@@ -194,6 +195,12 @@ export async function generateProblemsFromPlan(
         lastDraft = draft;
         lastLlmOutputHash = generated.meta.llmOutputHash;
         onProgress?.({ type: "slot_contract_validated", slotIndex: slot.index, attempt: attempts });
+        onProgress?.({
+          type: "slot_evidence",
+          slotIndex: slot.index,
+          attempt: attempts,
+          obligations: deriveSlotObligations(slot).map((id) => ({ id, ok: true })),
+        });
 
         // Step 2: Validate reference_solution compiles and passes tests (Docker)
         onProgress?.({ type: "slot_docker_validation_started", slotIndex: slot.index, attempt: attempts });
@@ -226,7 +233,20 @@ export async function generateProblemsFromPlan(
             type: "slot_contract_failed",
             slotIndex: slot.index,
             attempt: attempts,
-            shortError: "Contract validation failed.",
+            shortError:
+              typeof err.obligationId === "string" && err.obligationId
+                ? `${err.obligationId}: ${String(err.message).slice(0, 220)}`
+                : String(err.message).slice(0, 220) || "Contract validation failed.",
+          });
+          onProgress?.({
+            type: "slot_evidence",
+            slotIndex: slot.index,
+            attempt: attempts,
+            obligations: deriveSlotObligations(slot).map((id) => ({
+              id,
+              ok: id !== err.obligationId,
+              ...(id === err.obligationId ? { message: String(err.message).slice(0, 360) } : {}),
+            })),
           });
           onProgress?.({ type: "attempt_failed", index: slot.index, attempt: attempts, phase: "generate" });
           lastLlmOutputHash = err.llmOutputHash ?? lastLlmOutputHash;

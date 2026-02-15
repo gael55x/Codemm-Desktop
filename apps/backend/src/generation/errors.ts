@@ -14,16 +14,18 @@ export class GenerationContractError extends Error {
   slotIndex: number;
   llmOutputHash: string | undefined;
   rawSnippet: string | undefined;
+  obligationId: string | undefined;
 
   constructor(
     message: string,
-    opts: { slotIndex: number; llmOutputHash?: string; rawSnippet?: string }
+    opts: { slotIndex: number; llmOutputHash?: string; rawSnippet?: string; obligationId?: string }
   ) {
     super(message);
     this.name = "GenerationContractError";
     this.slotIndex = opts.slotIndex;
     this.llmOutputHash = opts.llmOutputHash;
     this.rawSnippet = opts.rawSnippet;
+    this.obligationId = opts.obligationId;
   }
 }
 

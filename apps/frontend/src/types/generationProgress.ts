@@ -7,6 +7,14 @@ export type GenerationProgressEvent =
   | { type: "slot_started"; slotIndex: number; difficulty: Difficulty; topic: string; language: GenerationLanguage }
   | { type: "slot_llm_attempt_started"; slotIndex: number; attempt: number }
   | { type: "slot_contract_validated"; slotIndex: number; attempt: number }
+  | {
+      type: "slot_evidence";
+      slotIndex: number;
+      attempt: number;
+      obligations?: Array<{ id: string; ok: boolean; message?: string }>;
+      qualityGate?: { baselines: Array<{ id: string; ok: boolean }> };
+      rewrites?: Array<{ id: string; applied: boolean; detail?: string }>;
+    }
   | { type: "slot_contract_failed"; slotIndex: number; attempt: number; shortError: string }
   | { type: "slot_docker_validation_started"; slotIndex: number; attempt: number }
   | { type: "slot_docker_validation_failed"; slotIndex: number; attempt: number; shortError: string }

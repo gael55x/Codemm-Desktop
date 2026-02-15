@@ -17,6 +17,7 @@ import { GenerationContractError } from "./errors";
 import { getTopLevelPublicTypeNames } from "../utils/javaSource";
 import type { SlotPromptContext } from "../languages/types";
 import { coerceSqlTestSuiteToJsonString } from "../languages/sql/rules";
+import { ObligationViolationError } from "./obligations";
 
 const CODEX_MODEL = process.env.CODEX_MODEL;
 const MAX_TOKENS = 5000;
@@ -1493,10 +1494,12 @@ export async function generateSingleProblem(
     return { draft: result.data, meta: { llmOutputHash } };
   } catch (err: any) {
     const msg = err?.message ?? String(err);
+    const obligationId = err instanceof ObligationViolationError ? err.obligationId : undefined;
     throw new GenerationContractError(msg, {
       slotIndex: slot.index,
       llmOutputHash,
       rawSnippet: text.slice(0, 2400),
+      ...(obligationId ? { obligationId } : {}),
     });
   }
 }
