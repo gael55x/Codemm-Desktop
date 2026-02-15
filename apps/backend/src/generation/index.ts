@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import type { ProblemPlan } from "../planner/types";
 import type { GeneratedProblem, GeneratedProblemDraft } from "../contracts/problem";
 import type { GenerationOutcome } from "../contracts/generationOutcome";
@@ -58,6 +59,34 @@ export async function generateProblemsFromPlan(
     };
   }
 ): Promise<{ problems: GeneratedProblem[]; outcomes: GenerationOutcome[] }> {
+  function computeExpensiveFingerprint(draft: GeneratedProblemDraft): string {
+    const h = crypto.createHash("sha256");
+    h.update(String(draft.language ?? ""));
+    h.update("\n==test_suite==\n");
+    h.update(String((draft as any).test_suite ?? ""));
+
+    if ("reference_solution" in (draft as any)) {
+      h.update("\n==reference_solution==\n");
+      h.update(String((draft as any).reference_solution ?? ""));
+    }
+
+    if ("reference_workspace" in (draft as any) && (draft as any).reference_workspace?.files) {
+      const files = Array.isArray((draft as any).reference_workspace.files)
+        ? [...(draft as any).reference_workspace.files]
+        : [];
+      files.sort((a: any, b: any) => String(a?.path ?? "").localeCompare(String(b?.path ?? "")));
+      h.update("\n==reference_workspace==\n");
+      for (const f of files) {
+        h.update(String(f?.path ?? ""));
+        h.update("\0");
+        h.update(String(f?.content ?? ""));
+        h.update("\n");
+      }
+    }
+
+    return h.digest("hex");
+  }
+
   const resumeProblems = Array.isArray(opts?.resume?.problems) ? opts!.resume!.problems : [];
   const resumeOutcomes = Array.isArray(opts?.resume?.outcomes) ? opts!.resume!.outcomes : [];
 
@@ -170,6 +199,10 @@ export async function generateProblemsFromPlan(
     let lastError: Error | null = null;
     let lastDraft: GeneratedProblemDraft | null = null;
     let lastLlmOutputHash: string | undefined;
+    let lastAttemptExpensiveFingerprint: string | undefined;
+    let lastExpensiveFailure:
+      | { fingerprint: string; error: ReferenceSolutionValidationError | TestStrengthGateError }
+      | null = null;
     let repair:
       | {
           previousDraft?: GeneratedProblemDraft;
@@ -202,6 +235,29 @@ export async function generateProblemsFromPlan(
           obligations: deriveSlotObligations(slot).map((id) => ({ id, ok: true })),
           ...(Array.isArray((generated.meta as any)?.rewrites) ? { rewrites: (generated.meta as any).rewrites } : {}),
         });
+
+        // Avoid rerunning expensive Docker/quality checks when the reference artifacts + tests are identical.
+        // This prevents "attempt thrash" where retries repeatedly validate the same payload.
+        lastAttemptExpensiveFingerprint = computeExpensiveFingerprint(draft);
+        if (
+          lastExpensiveFailure &&
+          lastExpensiveFailure.fingerprint === lastAttemptExpensiveFingerprint
+        ) {
+          trace("generation.attempt.deduped", {
+            slotIndex: slot.index,
+            attempts,
+            kind: lastExpensiveFailure.error.name,
+          });
+          if (lastExpensiveFailure.error instanceof ReferenceSolutionValidationError) {
+            onProgress?.({
+              type: "slot_docker_validation_started",
+              slotIndex: slot.index,
+              attempt: attempts,
+            });
+            onProgress?.({ type: "validation_started", index: slot.index, attempt: attempts });
+          }
+          throw lastExpensiveFailure.error;
+        }
 
         // Step 2: Validate reference_solution compiles and passes tests (Docker)
         onProgress?.({ type: "slot_docker_validation_started", slotIndex: slot.index, attempt: attempts });
@@ -258,6 +314,9 @@ export async function generateProblemsFromPlan(
         }
 
         if (err instanceof TestStrengthGateError) {
+          if (typeof lastAttemptExpensiveFingerprint === "string" && lastAttemptExpensiveFingerprint) {
+            lastExpensiveFailure = { fingerprint: lastAttemptExpensiveFingerprint, error: err };
+          }
           onProgress?.({
             type: "slot_contract_failed",
             slotIndex: slot.index,
@@ -273,6 +332,9 @@ export async function generateProblemsFromPlan(
         }
 
         if (err instanceof ReferenceSolutionValidationError && lastDraft) {
+          if (typeof lastAttemptExpensiveFingerprint === "string" && lastAttemptExpensiveFingerprint) {
+            lastExpensiveFailure = { fingerprint: lastAttemptExpensiveFingerprint, error: err };
+          }
           onProgress?.({
             type: "slot_docker_validation_failed",
             slotIndex: slot.index,

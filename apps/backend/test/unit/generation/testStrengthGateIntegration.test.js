@@ -82,6 +82,6 @@ test("generation: test strength gate failure is contract-equivalent and determin
   );
 
   assert.equal(generateCalls, 3);
-  assert.equal(validateCalls, 3);
+  // Dedup guard avoids re-running Docker validation when artifacts are identical across attempts.
+  assert.equal(validateCalls, 1);
 });
-
