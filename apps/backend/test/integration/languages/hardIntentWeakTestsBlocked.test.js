@@ -23,7 +23,6 @@ function installStubs(t) {
       problem_count: 1,
       difficulty_plan: [{ difficulty: "hard", count: 1 }],
       topic_tags: ["polymorphism"],
-      problem_style: "return",
     },
   };
 
@@ -33,9 +32,9 @@ function installStubs(t) {
     description: "Compute cost using polymorphic pricing plans.",
     starter_code: `
 public class Billing {
-  public int solve(String plan, int minutes) {
+  public void solve(String plan, int minutes) {
     PricingPlan p = plan.equals("premium") ? new PremiumPlan() : new BasicPlan();
-    return p.cost(minutes);
+    System.out.println(p.cost(minutes));
   }
 }
 
@@ -45,9 +44,9 @@ class PremiumPlan implements PricingPlan { public int cost(int minutes) { return
 `.trim(),
     reference_solution: `
 public class Billing {
-  public int solve(String plan, int minutes) {
+  public void solve(String plan, int minutes) {
     PricingPlan p = plan.equals("premium") ? new PremiumPlan() : new BasicPlan();
-    return p.cost(minutes);
+    System.out.println(p.cost(minutes));
   }
 }
 
@@ -57,17 +56,27 @@ class PremiumPlan implements PricingPlan { public int cost(int minutes) { return
 `.trim(),
     test_suite: `
 import org.junit.jupiter.api.Test;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class BillingTest {
+  private static String capture(Runnable r) {
+    PrintStream old = System.out;
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    System.setOut(new PrintStream(baos));
+    try { r.run(); } finally { System.setOut(old); }
+    return baos.toString();
+  }
+
   @Test void test_case_1(){ PricingPlan p = new BasicPlan(); assertEquals(3, p.cost(3)); }
   @Test void test_case_2(){ PricingPlan p = new PremiumPlan(); assertEquals(6, p.cost(3)); }
-  @Test void test_case_3(){ assertEquals(3, new Billing().solve("basic", 3)); }
-  @Test void test_case_4(){ assertEquals(6, new Billing().solve("premium", 3)); }
-  @Test void test_case_5(){ assertEquals(0, new Billing().solve("basic", 0)); }
-  @Test void test_case_6(){ assertEquals(0, new Billing().solve("premium", 0)); }
-  @Test void test_case_7(){ assertEquals(1, new Billing().solve("basic", 1)); }
-  @Test void test_case_8(){ assertEquals(2, new Billing().solve("premium", 1)); }
+  @Test void test_case_3(){ assertEquals("3", capture(() -> new Billing().solve("basic", 3)).trim()); }
+  @Test void test_case_4(){ assertEquals("6", capture(() -> new Billing().solve("premium", 3)).trim()); }
+  @Test void test_case_5(){ assertEquals("0", capture(() -> new Billing().solve("basic", 0)).trim()); }
+  @Test void test_case_6(){ assertEquals("0", capture(() -> new Billing().solve("premium", 0)).trim()); }
+  @Test void test_case_7(){ assertEquals("1", capture(() -> new Billing().solve("basic", 1)).trim()); }
+  @Test void test_case_8(){ assertEquals("2", capture(() -> new Billing().solve("premium", 1)).trim()); }
 }
 `.trim(),
     constraints: "Java 17, JUnit 5, no package declarations.",
@@ -122,7 +131,7 @@ test("e2e: hard intent + weak tests (baseline passes) must not reach SAVED or si
 
   const { sessionId } = createSession("practice");
 
-  const msg = await processSessionMessage(sessionId, "Create 1 hard Java problem on polymorphism with return style.");
+  const msg = await processSessionMessage(sessionId, "Create 1 hard Java problem on polymorphism.");
   assert.equal(msg.accepted, true);
   assert.equal(msg.done, true);
   assert.equal(msg.state, "READY");
@@ -131,7 +140,7 @@ test("e2e: hard intent + weak tests (baseline passes) must not reach SAVED or si
 
   const s = getSession(sessionId);
   assert.equal(s.state, "READY");
-  assert.equal(s.spec.problem_style, "return");
+  assert.equal(s.spec.problem_style, "stdout");
   assert.ok(Array.isArray(s.spec.difficulty_plan));
   assert.ok(s.spec.difficulty_plan.some((x) => x && x.difficulty === "hard"));
 

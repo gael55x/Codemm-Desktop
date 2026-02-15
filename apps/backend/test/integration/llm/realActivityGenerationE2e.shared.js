@@ -12,7 +12,7 @@ const { createSession, processSessionMessage, generateFromSession, getSession } 
  *
  * Defaults:
  * - `CODEMM_E2E_LANGS=java,python,cpp,sql`
- * - `CODEMM_E2E_STYLES=stdout,return,mixed`
+ * - `CODEMM_E2E_STYLES=stdout`
  * - `CODEMM_E2E_COUNTS=2`
  *
  * This test prints a terminal summary table at the end (even on failure).
@@ -103,7 +103,7 @@ function registerRealActivityGenerationE2e({ provider }) {
   const test = require("node:test");
 
   test(
-    `e2e (real LLM:${provider}): prompt → dialogue → READY → generateFromSession → activity persisted (2 × stdout/return/mixed × 4 langs)`,
+    `e2e (real LLM:${provider}): prompt → dialogue → READY → generateFromSession → activity persisted (stdout-only × 4 langs)`,
     // This test exercises real LLM calls + real Docker validation across a matrix.
     // Keep a generous timeout to avoid parent cancellation cascading into many subtest failures.
     { timeout: 6 * 60 * 60 * 1000 },
@@ -123,7 +123,10 @@ function registerRealActivityGenerationE2e({ provider }) {
       withEnv(t, { CODEX_PROVIDER: provider });
 
       const languages = parseCsvEnv("CODEMM_E2E_LANGS", ["java", "python", "cpp", "sql"]);
-      const styles = parseCsvEnv("CODEMM_E2E_STYLES", ["stdout", "return", "mixed"]);
+      const styles = Array.from(
+        new Set(parseCsvEnv("CODEMM_E2E_STYLES", ["stdout"]).filter((s) => s === "stdout"))
+      );
+      if (styles.length === 0) styles.push("stdout");
       const counts = parseCsvEnv("CODEMM_E2E_COUNTS", ["2"]).map((s) => Number(s));
 
       preflightOrThrow();
@@ -133,9 +136,6 @@ function registerRealActivityGenerationE2e({ provider }) {
         for (const language of languages) {
           for (const style of styles) {
             for (const count of counts) {
-              // SQL only supports stdout style reliably across adapters.
-              if (language === "sql" && style !== "stdout") continue;
-
               const label = `${provider} ${language} style=${style} count=${count}`;
               const row = {
                 provider,
@@ -167,7 +167,7 @@ function registerRealActivityGenerationE2e({ provider }) {
 
                   // Make it 1-turn READY by providing explicit problem_count + difficulty plan.
                   // difficultyPlanParser will deterministically set difficulty_plan and problem_count from "easy:N".
-                  const prompt = `Language: ${language}\nStyle: ${style}\nTopics: ${topic}\nDifficulty: easy:${count}`;
+                  const prompt = `Language: ${language}\nStyle: stdout\nTopics: ${topic}\nDifficulty: easy:${count}`;
 
                   const { sessionId } = createSession("practice");
                   const msg = await processSessionMessage(sessionId, prompt);
@@ -176,7 +176,7 @@ function registerRealActivityGenerationE2e({ provider }) {
                   assert.equal(msg.state, "READY");
                   assert.equal(msg.spec.language, language);
                   assert.equal(msg.spec.problem_count, count);
-                  assert.equal(msg.spec.problem_style, style);
+                  assert.equal(msg.spec.problem_style, "stdout");
 
                   const generated = await generateFromSession(sessionId);
                   row.activityId = generated.activityId;

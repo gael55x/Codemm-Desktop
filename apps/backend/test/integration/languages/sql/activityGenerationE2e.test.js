@@ -21,20 +21,18 @@ function installStubs(t, language) {
 
   let generationCall = 0;
 
-  function parseRequestedCountAndStyle(msg) {
+  function parseRequestedCountAndTopic(msg) {
     const m = String(msg || "");
     const lower = m.toLowerCase();
     const countMatch = lower.match(/\b(\d+)\s+(?:problems?|questions?)\b/);
     const count = countMatch ? Number(countMatch[1]) : 1;
-    // SQL supports only stdout style in v1.
-    const style = "stdout";
     const topicsMatch = m.match(/\btopics?\s*:\s*([A-Za-z0-9 _-]+)/i);
     const topic = topicsMatch?.[1]?.trim().split(/[,\n]/)[0]?.trim() || "filtering";
-    return { count, style, topic };
+    return { count, topic };
   }
 
   function buildDialogueResponse(latestUserMessage) {
-    const { count, style, topic } = parseRequestedCountAndStyle(latestUserMessage);
+    const { count, topic } = parseRequestedCountAndTopic(latestUserMessage);
     return {
       acknowledgement: "OK",
       inferred_intent: "Generate an activity.",
@@ -43,7 +41,6 @@ function installStubs(t, language) {
         problem_count: count,
         difficulty_plan: [{ difficulty: "easy", count }],
         topic_tags: [topic],
-        problem_style: style,
       },
     };
   }
@@ -121,44 +118,41 @@ function installStubs(t, language) {
   return { calls };
 }
 
-test("e2e activity generation (sql): 2/4/7 problems across stdout/return/mixed", async (t) => {
+test("e2e activity generation (sql): 2/4/7 problems (stdout-only)", async (t) => {
   const { calls } = installStubs(t, "sql");
 
   const counts = [2, 4, 7];
-  const styles = ["stdout"];
 
   for (const problem_count of counts) {
-    for (const style of styles) {
-      await t.test(`count=${problem_count} style=${style}`, async () => {
-        calls.length = 0;
+    await t.test(`count=${problem_count}`, async () => {
+      calls.length = 0;
 
-        const { sessionId } = createSession("practice");
-        const prompt = `Create ${problem_count} easy problems in SQL with ${style} style. Topics: filtering`;
+      const { sessionId } = createSession("practice");
+      const prompt = `Create ${problem_count} easy problems in SQL. Topics: filtering`;
 
-        const msgRes = await processSessionMessage(sessionId, prompt);
-        assert.equal(msgRes.accepted, true);
-        assert.equal(msgRes.done, true);
-        assert.equal(msgRes.state, "READY");
-        assert.equal(msgRes.spec.language, "sql");
-        assert.equal(msgRes.spec.problem_count, problem_count);
-        assert.equal(msgRes.spec.problem_style, style);
+      const msgRes = await processSessionMessage(sessionId, prompt);
+      assert.equal(msgRes.accepted, true);
+      assert.equal(msgRes.done, true);
+      assert.equal(msgRes.state, "READY");
+      assert.equal(msgRes.spec.language, "sql");
+      assert.equal(msgRes.spec.problem_count, problem_count);
+      assert.equal(msgRes.spec.problem_style, "stdout");
 
-        const genRes = await generateFromSession(sessionId);
-        assert.ok(genRes.activityId);
-        assert.equal(genRes.problems.length, problem_count);
-        for (const p of genRes.problems) {
-          assert.equal(p.language, "sql");
-          assert.equal("reference_solution" in p, false);
-        }
+      const genRes = await generateFromSession(sessionId);
+      assert.ok(genRes.activityId);
+      assert.equal(genRes.problems.length, problem_count);
+      for (const p of genRes.problems) {
+        assert.equal(p.language, "sql");
+        assert.equal("reference_solution" in p, false);
+      }
 
-        const stored = activityDb.findById(genRes.activityId);
-        assert.ok(stored);
-        const storedProblems = JSON.parse(stored.problems);
-        assert.equal(storedProblems.length, problem_count);
+      const stored = activityDb.findById(genRes.activityId);
+      assert.ok(stored);
+      const storedProblems = JSON.parse(stored.problems);
+      assert.equal(storedProblems.length, problem_count);
 
-        const session = getSession(sessionId);
-        assert.equal(session.state, "SAVED");
-      });
-    }
+      const session = getSession(sessionId);
+      assert.equal(session.state, "SAVED");
+    });
   }
 });
