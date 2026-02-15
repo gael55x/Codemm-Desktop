@@ -1416,29 +1416,129 @@ async function createWindowAndBoot() {
               font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
               background: radial-gradient(1200px 800px at 20% 10%, #172554 0%, #0b1220 55%, #050814 100%);
               color: #e2e8f0;
+            }
+            .bg {
+              position: fixed;
+              inset: 0;
+              pointer-events: none;
+              overflow: hidden;
+            }
+            .orb {
+              position: absolute;
+              width: 680px;
+              height: 680px;
+              border-radius: 999px;
+              filter: blur(70px);
+              opacity: 0.42;
+            }
+            .orb.one { left: -220px; top: -260px; background: rgba(56, 189, 248, 0.30); }
+            .orb.two { right: -260px; bottom: -340px; background: rgba(99, 102, 241, 0.22); }
+            .shell {
+              position: relative;
+              min-height: 100vh;
+              display: flex;
+              flex-direction: column;
+            }
+            .topbar {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              padding: 18px 22px;
+              border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+              background: rgba(2, 6, 23, 0.30);
+              backdrop-filter: blur(10px);
+            }
+            .brandRow { display: flex; align-items: center; gap: 10px; }
+            .logoMark {
+              width: 10px;
+              height: 10px;
+              border-radius: 999px;
+              background: rgba(56, 189, 248, 0.95);
+              box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12);
+            }
+            .brand {
+              font-size: 18px;
+              font-weight: 800;
+              letter-spacing: 0.01em;
+            }
+            .pillRow { display: flex; align-items: center; gap: 10px; }
+            .pill {
+              height: 34px;
+              padding: 0 14px;
+              border-radius: 999px;
+              border: 1px solid rgba(148, 163, 184, 0.14);
+              background: rgba(15, 23, 42, 0.35);
+            }
+            .pill.wide { width: 108px; }
+            .pill.narrow { width: 86px; }
+            .pill.icon { width: 34px; padding: 0; }
+            .main {
+              flex: 1;
               display: grid;
               place-items: center;
+              padding: 36px 22px 44px 22px;
             }
-            .wrap { text-align: center; padding: 24px; }
-            .brand { font-size: 18px; font-weight: 600; letter-spacing: 0.01em; }
-            .sub { margin-top: 10px; color: rgba(226, 232, 240, 0.75); font-size: 13px; line-height: 1.5; }
+            .card {
+              width: min(860px, calc(100vw - 56px));
+              border: 1px solid rgba(148, 163, 184, 0.16);
+              background: rgba(2, 6, 23, 0.36);
+              border-radius: 18px;
+              padding: 22px 22px;
+              box-shadow: 0 24px 80px rgba(0,0,0,0.42);
+            }
+            .headline { font-size: 14px; font-weight: 650; letter-spacing: 0.02em; margin: 0; }
+            .sub {
+              margin-top: 10px;
+              color: rgba(226, 232, 240, 0.74);
+              font-size: 13px;
+              line-height: 1.5;
+            }
+            .row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
             .spinner {
-              margin: 18px auto 0 auto;
-              width: 22px;
-              height: 22px;
+              width: 20px;
+              height: 20px;
               border-radius: 999px;
               border: 2px solid rgba(148, 163, 184, 0.28);
               border-top-color: rgba(56, 189, 248, 0.95);
               animation: spin 0.9s linear infinite;
             }
             @keyframes spin { to { transform: rotate(360deg); } }
+            .hint {
+              margin-top: 12px;
+              color: rgba(226, 232, 240, 0.60);
+              font-size: 12px;
+            }
           </style>
         </head>
         <body>
-          <div class="wrap">
-            <div class="brand">Codemm</div>
-            <div class="sub">Launching…</div>
-            <div class="spinner" aria-hidden="true"></div>
+          <div class="bg" aria-hidden="true">
+            <div class="orb one"></div>
+            <div class="orb two"></div>
+          </div>
+          <div class="shell">
+            <div class="topbar">
+              <div class="brandRow">
+                <div class="logoMark"></div>
+                <div class="brand">Codemm</div>
+              </div>
+              <div class="pillRow" aria-hidden="true">
+                <div class="pill wide"></div>
+                <div class="pill narrow"></div>
+                <div class="pill narrow"></div>
+                <div class="pill icon"></div>
+              </div>
+            </div>
+            <div class="main">
+              <div class="card">
+                <p class="headline">Launching…</p>
+                <div class="sub">Starting the engine and preparing the interface.</div>
+                <div class="row">
+                  <div class="spinner" aria-hidden="true"></div>
+                  <div class="sub">Just a moment</div>
+                </div>
+                <div class="hint">First launch may take longer while Docker images are prepared.</div>
+              </div>
+            </div>
           </div>
         </body>
       </html>
