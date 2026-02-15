@@ -68,6 +68,13 @@ function indexJavaTypes(source: string): JavaTypeIndex {
   };
 }
 
+function pickStatefulPrimaryClass(index: JavaTypeIndex): string | null {
+  // Avoid treating "Main" as the primary domain object for OOP structural checks.
+  if (index.publicClassName && index.publicClassName !== "Main") return index.publicClassName;
+  const nonMain = index.classes.map((c) => c.name).find((n) => n && n !== "Main") ?? null;
+  return nonMain;
+}
+
 function pickBaseType(index: JavaTypeIndex): string | null {
   return index.interfaces[0] ?? index.abstractClasses[0] ?? null;
 }
@@ -136,7 +143,7 @@ export function assertJavaStructuralTopicRequirements(args: {
   if (required.length === 0) return;
 
   const index = indexJavaTypes(args.referenceSource);
-  const publicClass = index.publicClassName;
+  const publicClass = pickStatefulPrimaryClass(index);
 
   for (const topic of required) {
     if (topic === "polymorphism") {
@@ -219,7 +226,7 @@ export function assertJavaStructuralTopicRequirements(args: {
     if (topic === "composition") {
       if (!publicClass) {
         throw new Error(
-          "Structural topic requirement failed (composition): reference solution must include a public class."
+          'Structural topic requirement failed (composition): reference solution must include a non-"Main" class suitable for composition checks.'
         );
       }
       const others = index.classes.map((c) => c.name).filter((n) => n !== publicClass);
@@ -243,7 +250,7 @@ export function assertJavaStructuralTopicRequirements(args: {
     if (topic === "encapsulation") {
       if (!publicClass) {
         throw new Error(
-          "Structural topic requirement failed (encapsulation): reference solution must include a public class."
+          'Structural topic requirement failed (encapsulation): reference solution must include a non-"Main" class suitable for encapsulation checks.'
         );
       }
       if (!/\bprivate\s+[^;]+;/.test(args.referenceSource)) {
@@ -251,7 +258,8 @@ export function assertJavaStructuralTopicRequirements(args: {
           `Structural topic requirement failed (encapsulation): "${publicClass}" must include at least one private field.`
         );
       }
-      if (/\bpublic\s+(?!class|interface|enum)[^;\n]*\s+[A-Za-z_][A-Za-z0-9_]*\s*;/.test(args.referenceSource)) {
+      // Best-effort: detect public field declarations (avoid matching method bodies/calls).
+      if (/\bpublic\s+(?!class|interface|enum)[^;\n()]*\s+[A-Za-z_][A-Za-z0-9_]*\s*;/.test(args.referenceSource)) {
         throw new Error(
           `Structural topic requirement failed (encapsulation): "${publicClass}" must not expose public fields (use methods).`
         );

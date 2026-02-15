@@ -84,3 +84,42 @@ public class BillingTest {
   );
 });
 
+test("java structural topics: encapsulation ignores public Main and validates a domain class", () => {
+  const referenceSource = `
+public class Main {
+  public static void main(String[] args) {
+    System.out.println("ok");
+  }
+}
+
+class Vault {
+  private int balance = 0;
+  public void deposit(int amt) { if (amt < 0) throw new IllegalArgumentException(); balance += amt; }
+  public int getBalance() { return balance; }
+}
+`.trim();
+
+  const testSuite = `
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
+
+public class VaultTest {
+  @Test void test_case_1(){ Vault v = new Vault(); v.deposit(1); assertEquals(1, v.getBalance()); }
+  @Test void test_case_2(){ Vault v = new Vault(); v.deposit(2); assertEquals(2, v.getBalance()); }
+  @Test void test_case_3(){ Vault v = new Vault(); v.deposit(3); assertEquals(3, v.getBalance()); }
+  @Test void test_case_4(){ Vault v = new Vault(); v.deposit(4); assertEquals(4, v.getBalance()); }
+  @Test void test_case_5(){ Vault v = new Vault(); v.deposit(5); assertEquals(5, v.getBalance()); }
+  @Test void test_case_6(){ Vault v = new Vault(); v.deposit(6); assertEquals(6, v.getBalance()); }
+  @Test void test_case_7(){ Vault v = new Vault(); v.deposit(7); assertEquals(7, v.getBalance()); }
+  @Test void test_case_8(){ Vault v = new Vault(); v.deposit(8); assertEquals(8, v.getBalance()); }
+}
+`.trim();
+
+  assert.doesNotThrow(() =>
+    assertJavaStructuralTopicRequirements({
+      topics: ["encapsulation"],
+      referenceSource,
+      testSuite,
+    })
+  );
+});
