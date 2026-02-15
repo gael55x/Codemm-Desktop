@@ -22,6 +22,11 @@ Product checking mode (stdout-only):
 - Codemm checks ONLY what is printed to stdout.
 - reference_solution MUST print the final answer to stdout (System.out.print/println/printf).
 - test_suite MUST capture stdout and assert on the printed output (do not rely on return values).
+- Prefer deterministic unit-testable methods; avoid stdin/menu loops for OOP structural topics.
+- If you DO read from stdin (Scanner/System.in), you MUST:
+  - include "public static void main(String[] args)" as the entrypoint,
+  - provide at least 8 "sample_inputs" entries (each a full stdin transcript),
+  - ensure the program terminates without requiring extra input beyond each sample.
 
 Test suite requirements:
 - Exactly 8 @Test methods
@@ -203,6 +208,7 @@ Critical rules:
 - reference_solution must be a complete, working solution that passes all tests
 - starter_code should be the same class with method signatures but TODOs instead of implementation
 - stdout-only: tests MUST capture System.out and assert on the printed output; reference_solution MUST print the final answer.
+- Prefer avoiding Scanner/System.in for structural OOP topics; use methods + object instances instead.
 - Avoid whitespace-padding edge cases unless you explicitly define normalization; do not assertEquals against string literals with leading/trailing spaces.
 	- starter_code and reference_solution must declare at most ONE top-level public type.
 	- All Java code must have NO package declarations

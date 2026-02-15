@@ -5,6 +5,8 @@ export type ObligationId =
   | "java.test_class_matches_target"
   | "java.primary_type_matches_target"
   | "java.no_while_false"
+  | "java.stdin_requires_main"
+  | "java.stdin_disallowed_for_structural_topics"
   | "java.structural_topic.polymorphism"
   | "java.structural_topic.inheritance"
   | "java.structural_topic.abstraction"
@@ -12,6 +14,7 @@ export type ObligationId =
   | "java.structural_topic.composition"
   | "java.stdout_solution_prints"
   | "java.stdout_tests_capture"
+  | "java.stdin_tests_provide"
   | "tests.reject_baselines"
   | "retry.substantive_change_required";
 
@@ -65,6 +68,7 @@ export function deriveSlotObligations(slot: ProblemSlot): ObligationId[] {
     out.push("java.no_while_false");
     out.push("java.stdout_solution_prints");
     out.push("java.stdout_tests_capture");
+    out.push("java.stdin_tests_provide");
 
     if (hasStructuralTopic(slot.topics, "polymorphism")) out.push("java.structural_topic.polymorphism");
     if (hasStructuralTopic(slot.topics, "inheritance")) out.push("java.structural_topic.inheritance");

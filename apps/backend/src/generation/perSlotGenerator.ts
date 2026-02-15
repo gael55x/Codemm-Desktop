@@ -6,6 +6,7 @@ import {
   hasBrittleWhitespaceStringExpectations,
   isValidJUnit5TestSuite,
   javaTestSuiteCapturesStdout,
+  javaTestSuiteSetsStdin,
 } from "../languages/java/rules";
 import { assertJavaStructuralTopicRequirements } from "../languages/java/structuralTopics";
 import { diagnoseCppTestSuite, hasCppStdoutWrites, looksLikeCppTestSuiteCapturesStdout } from "../languages/cpp/rules";
@@ -15,11 +16,12 @@ import type { ProblemSlot } from "../planner/types";
 import { buildSlotPromptWithContext, getSystemPromptForSlot } from "./prompts";
 import { trace, traceText } from "../utils/trace";
 import { GenerationContractError } from "./errors";
-import { getTopLevelPublicTypeNames, javaUsesStdout } from "../utils/javaSource";
+import { getTopLevelPublicTypeNames, javaUsesStdout, javaUsesStdin } from "../utils/javaSource";
 import type { SlotPromptContext } from "../languages/types";
 import { coerceSqlTestSuiteToJsonString } from "../languages/sql/rules";
 import { ObligationViolationError, type ObligationId } from "./obligations";
 import { demoteExtraTopLevelPublicTypes, promoteOneTopLevelTypeToPublic, rewriteJavaTopLevelPublicClassName } from "../utils/javaRewrite";
+import { buildJavaStdinSampleDrivenJUnitTestSuite, computeJavaStdoutSamplesByExecutingReference } from "../languages/java/sampleDrivenTests";
 
 const CODEX_MODEL = process.env.CODEX_MODEL;
 const MAX_TOKENS = 5000;
@@ -491,6 +493,21 @@ function assertJavaLegacyDraftInvariants(slot: ProblemSlot, draft: Extract<Gener
   if (/\bwhile\s*\(\s*false\s*\)\s*\{?/.test(referenceSolution)) {
     throw new Error('reference_solution must not include "while(false)" (unreachable statement).');
   }
+}
+
+function hasJavaMainMethod(source: string): boolean {
+  const s = String(source ?? "");
+  const withoutBlockComments = s.replace(/\/\*[\s\S]*?\*\//g, "");
+  const withoutLineComments = withoutBlockComments.replace(/\/\/.*$/gm, "");
+  return /public\s+static\s+void\s+main\s*\(\s*(?:final\s+)?String\s*(?:(?:\[\s*\]|\.\.\.)\s*\w+|\w+\s*\[\s*\])\s*\)/.test(
+    withoutLineComments
+  );
+}
+
+function hasJavaStructuralTopics(topics: string[]): boolean {
+  const lower = topics.map((t) => String(t ?? "").toLowerCase());
+  const keys = ["polymorphism", "inheritance", "abstraction", "encapsulation", "composition"];
+  return keys.some((k) => lower.some((t) => t.includes(k)));
 }
 
 function assertJavaFilenameMatchesPublicClass(filename: string, source: string) {
@@ -1510,47 +1527,6 @@ export async function generateSingleProblem(
     let testSuite =
       typeof raw.test_suite === "string" && raw.test_suite.trim() ? raw.test_suite.trim() : "";
 
-    // Validate test suite structure strictly
-    if (!isValidJUnit5TestSuite(testSuite, 8)) {
-      throw new Error(
-        `Invalid test_suite for slot ${slot.index}: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.`
-      );
-    }
-    if (hasBrittleWhitespaceStringExpectations(testSuite)) {
-      const sanitized = sanitizeJavaStringLiteralsBoundaryWhitespace(testSuite);
-      if (sanitized.changed && !hasBrittleWhitespaceStringExpectations(sanitized.testSuite)) {
-        testSuite = sanitized.testSuite;
-      } else {
-        throw new Error(
-          `Invalid test_suite for slot ${slot.index}: avoid assertEquals() against string literals with leading/trailing whitespace (brittle).`
-        );
-      }
-    }
-
-    // Ensure test class name matches starter_code class name + "Test"
-    const expectedTestClassName = `${className}Test`;
-    {
-      const renamed = rewriteJavaTopLevelPublicClassName({ source: testSuite, expectedName: expectedTestClassName });
-      if (renamed.changed) {
-        testSuite = renamed.source;
-        rewrites.push({
-          id: "java.rename_test_class",
-          applied: true,
-          detail: `Renamed public test class "${renamed.previousName}" -> "${expectedTestClassName}".`,
-        });
-      }
-      const actualTestClassName = inferPrimaryClassName(testSuite, expectedTestClassName);
-      if (actualTestClassName !== expectedTestClassName) {
-        throw new ObligationViolationError(
-          `Test suite class name "${actualTestClassName}" must match "${expectedTestClassName}".`,
-          { obligationId: "java.test_class_matches_target" }
-        );
-      }
-    }
-
-    // Do not require tests to explicitly reference the target type at contract-time.
-    // The real guardrail is Docker validation of the reference_solution against the test suite.
-
     let referenceSolution =
       typeof raw.reference_solution === "string" && raw.reference_solution.trim()
         ? raw.reference_solution.trim()
@@ -1617,6 +1593,103 @@ export async function generateSingleProblem(
       );
     }
 
+    // Ensure test class name matches starter_code class name + "Test"
+    const expectedTestClassName = `${className}Test`;
+
+    // If the reference solution reads stdin, we either enforce a stdin-aware test suite,
+    // or (when no structural topics are required) deterministically derive tests from sample I/O.
+    const usesStdin = javaUsesStdin(referenceSolution);
+    const requiresStructuralTopics = hasJavaStructuralTopics(slot.topics);
+    if (usesStdin && requiresStructuralTopics) {
+      throw new ObligationViolationError(
+        "stdin reads (Scanner/System.in) are not allowed for Java structural-topic slots (encapsulation/inheritance/polymorphism/etc). Use pure methods and deterministic unit tests instead.",
+        { obligationId: "java.stdin_disallowed_for_structural_topics" }
+      );
+    }
+
+    if (usesStdin && !hasJavaMainMethod(referenceSolution)) {
+      throw new ObligationViolationError(
+        "stdin-driven Java problems must provide a public static void main(String[] args) entrypoint so tests can execute deterministically.",
+        { obligationId: "java.stdin_requires_main" }
+      );
+    }
+
+    let sampleInputs: string[] | null = null;
+    let sampleOutputs: string[] | null = null;
+
+    if (usesStdin) {
+      const stdinSamples = Array.isArray((raw as any).sample_inputs)
+        ? (raw as any).sample_inputs
+            .map((x: any) => String(x ?? "").replace(/\r\n/g, "\n"))
+            .filter((x: string) => x.trim().length > 0)
+        : [];
+      if (stdinSamples.length < 8) {
+        throw new ObligationViolationError(
+          `stdin-driven Java problems must include at least 8 non-empty sample_inputs (each is a full stdin transcript). Got ${stdinSamples.length}.`,
+          { obligationId: "java.stdin_tests_provide" }
+        );
+      }
+
+      const { stdoutSamples } = await computeJavaStdoutSamplesByExecutingReference({
+        referenceSolution,
+        stdinSamples,
+        maxSamples: 8,
+      });
+
+      testSuite = buildJavaStdinSampleDrivenJUnitTestSuite({
+        testClassName: expectedTestClassName,
+        mainClassName: className,
+        cases: Array.from({ length: 8 }, (_, i) => ({
+          stdin: stdinSamples[i] ?? "",
+          expectedStdout: stdoutSamples[i] ?? "",
+        })),
+      });
+
+      rewrites.push({
+        id: "java.tests.from_samples",
+        applied: true,
+        detail: "Rebuilt test_suite deterministically from sample_inputs by executing the reference_solution in Docker.",
+      });
+      sampleInputs = stdinSamples.slice(0, 8);
+      sampleOutputs = stdoutSamples.slice(0, 8);
+    }
+
+    // Validate test suite structure strictly (after potential deterministic rebuild).
+    if (!isValidJUnit5TestSuite(testSuite, 8)) {
+      throw new Error(
+        `Invalid test_suite for slot ${slot.index}: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.`
+      );
+    }
+    if (hasBrittleWhitespaceStringExpectations(testSuite)) {
+      const sanitized = sanitizeJavaStringLiteralsBoundaryWhitespace(testSuite);
+      if (sanitized.changed && !hasBrittleWhitespaceStringExpectations(sanitized.testSuite)) {
+        testSuite = sanitized.testSuite;
+      } else {
+        throw new Error(
+          `Invalid test_suite for slot ${slot.index}: avoid assertEquals() against string literals with leading/trailing whitespace (brittle).`
+        );
+      }
+    }
+
+    {
+      const renamed = rewriteJavaTopLevelPublicClassName({ source: testSuite, expectedName: expectedTestClassName });
+      if (renamed.changed) {
+        testSuite = renamed.source;
+        rewrites.push({
+          id: "java.rename_test_class",
+          applied: true,
+          detail: `Renamed public test class "${renamed.previousName}" -> "${expectedTestClassName}".`,
+        });
+      }
+      const actualTestClassName = inferPrimaryClassName(testSuite, expectedTestClassName);
+      if (actualTestClassName !== expectedTestClassName) {
+        throw new ObligationViolationError(
+          `Test suite class name "${actualTestClassName}" must match "${expectedTestClassName}".`,
+          { obligationId: "java.test_class_matches_target" }
+        );
+      }
+    }
+
     // Enforce structural topic requirements for selected Java OOP topics (deterministic, narrow).
     try {
       assertJavaStructuralTopicRequirements({
@@ -1653,6 +1726,12 @@ export async function generateSingleProblem(
         { obligationId: "java.stdout_tests_capture" }
       );
     }
+    if (usesStdin && !javaTestSuiteSetsStdin(testSuite)) {
+      throw new ObligationViolationError(
+        "For stdin-driven Java problems, test_suite must set deterministic stdin (System.setIn / ByteArrayInputStream) before executing the code.",
+        { obligationId: "java.stdin_tests_provide" }
+      );
+    }
 
     const rawConstraints = typeof raw.constraints === "string" ? raw.constraints.trim() : "";
     if (rawConstraints && rawConstraints !== slot.constraints) {
@@ -1660,11 +1739,13 @@ export async function generateSingleProblem(
     }
     const constraints = slot.constraints;
 
-    const samples = coerceNonEmptySamplePairs(raw, "stdin");
-    const sampleInputs = samples.sampleInputs;
-    const sampleOutputs = samples.sampleOutputs;
-    if (samples.changed) {
-      rewrites.push({ id: "samples.autofill", applied: true, detail: "Filled missing/mismatched sample_inputs/sample_outputs." });
+    if (!sampleInputs || !sampleOutputs) {
+      const samples = coerceNonEmptySamplePairs(raw, "stdin");
+      sampleInputs = samples.sampleInputs;
+      sampleOutputs = samples.sampleOutputs;
+      if (samples.changed) {
+        rewrites.push({ id: "samples.autofill", applied: true, detail: "Filled missing/mismatched sample_inputs/sample_outputs." });
+      }
     }
 
     const difficulty = slot.difficulty;

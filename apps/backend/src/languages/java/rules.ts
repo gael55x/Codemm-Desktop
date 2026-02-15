@@ -79,3 +79,9 @@ export function javaTestSuiteCapturesStdout(testSuite: string): boolean {
   // Require evidence that the captured bytes are read (assertions are already required by `isValidJUnit5TestSuite()`).
   return /\btoString\s*\(\s*\)/.test(ts) || /\btoByteArray\s*\(\s*\)/.test(ts);
 }
+
+export function javaTestSuiteSetsStdin(testSuite: string): boolean {
+  const ts = String(testSuite ?? "");
+  // Best-effort detection: stdin-driven programs must provide deterministic stdin.
+  return /\bSystem\s*\.\s*setIn\s*\(/.test(ts) || /\bByteArrayInputStream\b/.test(ts);
+}
