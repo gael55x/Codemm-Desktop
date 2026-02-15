@@ -55,6 +55,15 @@ export const ActivitySpecDraftSchema = z
 export function ensureFixedFields(spec: SpecDraft): JsonPatchOp[] {
   const patch: JsonPatchOp[] = [];
 
+  // Product decision: Codemm v1 uses stdout-only checking for determinism and UX consistency.
+  if (spec.problem_style !== "stdout") {
+    patch.push({
+      op: spec.problem_style == null ? "add" : "replace",
+      path: "/problem_style",
+      value: "stdout",
+    });
+  }
+
   if (spec.test_case_count !== CODEMM_DEFAULT_TEST_CASE_COUNT) {
     patch.push({
       op: spec.test_case_count == null ? "add" : "replace",

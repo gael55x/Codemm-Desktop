@@ -60,7 +60,6 @@ export function defaultNextQuestionFromGaps(gaps: SpecGaps): string {
     "problem_count",
     "difficulty_plan",
     "topic_tags",
-    "problem_style",
   ];
 
   const next = priority.find((k) => gaps.missing.includes(k)) ?? gaps.missing[0];
@@ -74,8 +73,6 @@ export function defaultNextQuestionFromGaps(gaps: SpecGaps): string {
       return "How hard should the problems be overall? (easy / medium / hard counts)";
     case "topic_tags":
       return "What topics should we cover? Share a few tags.";
-    case "problem_style":
-      return "How should solutions be checked? (return value / console output / both)";
     default:
       return "What would you like this activity to focus on?";
   }

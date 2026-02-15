@@ -34,6 +34,7 @@ const ProposedPatchSchema = z
       .max(3)
       .optional(),
     topic_tags: z.array(z.string().trim().min(1).max(40)).min(1).max(12).optional(),
+    // Backwards-compatible: older model behaviors may still emit this field; engine ignores it (stdout-only).
     problem_style: z.enum(["stdout", "return", "mixed"]).optional(),
   })
   .strict();
@@ -79,11 +80,6 @@ function safeExtractPatchFromText(userMessage: string): Partial<ActivitySpec> {
     if (Number.isFinite(n) && n >= 1 && n <= 7) patch.problem_count = n;
   }
 
-  // problem_style
-  if (/\bstdout\b/.test(lower)) patch.problem_style = "stdout";
-  else if (/\breturn\b/.test(lower)) patch.problem_style = "return";
-  else if (/\bmixed\b/.test(lower)) patch.problem_style = "mixed";
-
   // topics (best-effort): "focus on X, Y" or comma-separated short list
   const topicTail = msg.replace(/^.*\b(?:topics?|focus on|about|cover)\b/i, "").trim();
   const candidate = topicTail && topicTail.length <= 200 ? topicTail : msg.length <= 120 && msg.includes(",") ? msg : "";
@@ -113,7 +109,7 @@ function buildNextQuestion(spec: SpecDraft): { key: string; prompt: string } | n
   if (gaps.complete) return null;
   const prompt = defaultNextQuestionFromGaps(gaps);
 
-  const priority: (keyof ActivitySpec)[] = ["language", "problem_count", "difficulty_plan", "topic_tags", "problem_style"];
+  const priority: (keyof ActivitySpec)[] = ["language", "problem_count", "difficulty_plan", "topic_tags"];
   const next = priority.find((k) => gaps.missing.includes(k)) ?? (gaps.missing[0] as keyof ActivitySpec | undefined);
   const key = next ? String(next) : "unknown";
 
@@ -154,7 +150,6 @@ Hard rules:
   - problem_count: 1..7
   - difficulty_plan: [{difficulty: easy|medium|hard, count: 0..7}] (max 3 items)
   - topic_tags: string[] (1..12 items, 1..40 chars each)
-  - problem_style: stdout|return|mixed
 `.trim();
 
   const user = `
@@ -208,6 +203,8 @@ Return JSON with this exact shape:
     unknown
   >;
   const proposedPatch = stripUndefinedValues(rawPatch) as Partial<ActivitySpec>;
+  // Product decision: stdout-only. Treat problem_style as non-user-editable and ignore any proposal.
+  delete (proposedPatch as any).problem_style;
 
   const confirm = computeConfirmRequired({
     userMessage: input.latestUserMessage,

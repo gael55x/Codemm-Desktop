@@ -17,8 +17,8 @@ export function defaultPatchForGoal(
 
   if (goal === "checking") {
     if (typeof spec.problem_style !== "string" || !spec.problem_style.trim()) {
-      patch.push({ op: spec.problem_style == null ? "add" : "replace", path: "/problem_style", value: "return" });
-      assumptions.push('Defaulted solution style to "return".');
+      patch.push({ op: spec.problem_style == null ? "add" : "replace", path: "/problem_style", value: "stdout" });
+      assumptions.push('Defaulted solution style to "stdout".');
     }
   }
 
@@ -54,4 +54,3 @@ export function defaultPatchForGoal(
 
   return patch.length > 0 ? { patch, assumptions } : null;
 }
-

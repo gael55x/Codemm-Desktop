@@ -475,7 +475,7 @@ export async function processSessionMessage(
     const gaps = analyzeSpecGaps(spec);
     if (gaps.complete) return null;
     const prompt = defaultNextQuestionFromGaps(gaps);
-    const priority: (keyof ActivitySpec)[] = ["language", "problem_count", "difficulty_plan", "topic_tags", "problem_style"];
+    const priority: (keyof ActivitySpec)[] = ["language", "problem_count", "difficulty_plan", "topic_tags"];
     const next = priority.find((k) => gaps.missing.includes(k)) ?? (gaps.missing[0] as keyof ActivitySpec | undefined);
     return { key: next ? String(next) : "unknown", prompt };
   };

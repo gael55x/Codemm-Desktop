@@ -33,7 +33,7 @@ function buildDifficultyPlan(counts: { easy: number; medium: number; hard: numbe
  *
  * Goals:
  * - Preserve schema validity (counts sum, mixed difficulties)
- * - Make generation/test alignment easier (prefer return style, reduce hard problems, narrow topics)
+ * - Improve generation stability (reduce hard problems, narrow topics)
  *
  * This MUST be auditable (caller persists trace entry).
  */
@@ -48,15 +48,7 @@ export function proposeGenerationFallbackWithPolicy(
   const allowDowngradeDifficulty = opts.allowDowngradeDifficulty !== false;
   const allowNarrowTopics = opts.allowNarrowTopics !== false;
 
-  // 1) Prefer return-based checking: generally easier to specify and test deterministically.
-  if (spec.problem_style !== "return") {
-    return {
-      patch: [setField(spec as any, "problem_style", "return")],
-      reason: "Switched to return-based checking for more deterministic testing and higher solution/test alignment.",
-    };
-  }
-
-  // 2) Reduce hard problems if present (hard → medium).
+  // 1) Reduce hard problems if present (hard → medium).
   const counts = getDifficultyCounts(spec);
   const total = spec.problem_count;
   if (allowDowngradeDifficulty && counts.hard > 0) {
@@ -78,7 +70,7 @@ export function proposeGenerationFallbackWithPolicy(
     };
   }
 
-  // 3) Narrow topic scope if the list is large (reduces prompt breadth).
+  // 2) Narrow topic scope if the list is large (reduces prompt breadth).
   if (allowNarrowTopics && spec.topic_tags.length > 4) {
     return {
       patch: [setField(spec as any, "topic_tags", spec.topic_tags.slice(0, 3))],

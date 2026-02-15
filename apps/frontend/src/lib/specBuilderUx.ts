@@ -13,7 +13,7 @@ export type BackendSpecResponse = {
 };
 
 export type SpecSlot = {
-  key: "language" | "problem_count" | "difficulty_plan" | "topic_tags" | "problem_style" | "constraints";
+  key: "language" | "problem_count" | "difficulty_plan" | "topic_tags" | "constraints";
   intent: string;
   examples?: string[];
 };
@@ -35,8 +35,6 @@ function deriveSlotKeyFromQuestion(question?: string | null): SpecSlot["key"] | 
   if (tail.includes("how hard") || tail.includes("easy") || tail.includes("medium") || tail.includes("hard"))
     return "difficulty_plan";
   if (tail.includes("topics") || tail.includes("tags")) return "topic_tags";
-  if (tail.includes("checked") || tail.includes("stdout") || tail.includes("return") || tail.includes("mixed"))
-    return "problem_style";
   if (tail.includes("constraints") || tail.includes("java/junit setup")) return "constraints";
   return null;
 }
@@ -59,7 +57,6 @@ function deriveSlotKeyFromQuestionKey(key?: string | null): SpecSlot["key"] | nu
     if (goal === "content") return "topic_tags";
     if (goal === "scope") return "problem_count";
     if (goal === "difficulty") return "difficulty_plan";
-    if (goal === "checking") return "problem_style";
     if (goal === "language") return "language";
   }
   return null;
@@ -89,20 +86,6 @@ function humanizeSpecError(err: string, slot?: SpecSlot | null): { friendly: str
     };
   }
 
-  // Handle SQL-specific style restriction
-  if (slot?.key === "problem_style" && lower.includes("sql")) {
-    return {
-      friendly: "SQL problems only support console output checking right now.",
-      hints: ["Please reply with 'stdout'."],
-    };
-  }
-
-  if (slot?.key === "problem_style") {
-    return {
-      friendly: "Pick how solutions are checked: return value, console output, or both.",
-      hints: ["Keywords: 'return', 'stdout', or 'mixed'."],
-    };
-  }
   if (slot?.key === "problem_count") {
     return {
       friendly: "Share how many problems you want (1-7).",
@@ -138,11 +121,6 @@ const SPEC_SLOTS: SpecSlot[] = [
     key: "difficulty_plan",
     intent: "How hard should these problems be overall?",
     examples: ["easy:2, medium:2, hard:1", "2 easy, 2 medium, 1 hard"],
-  },
-  {
-    key: "problem_style",
-    intent: "How should solutions be checked? (return value / console output / both)",
-    examples: ["return", "stdout", "mixed"],
   },
   {
     key: "language",

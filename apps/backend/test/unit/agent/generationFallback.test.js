@@ -5,28 +5,7 @@ const assert = require("node:assert/strict");
 
 const { proposeGenerationFallback, proposeGenerationFallbackWithPolicy } = require("../../../src/agent/generationFallback");
 
-test("generation fallback: switches to return style first", () => {
-  const spec = {
-    version: "1.0",
-    language: "java",
-    problem_count: 3,
-    difficulty_plan: [
-      { difficulty: "easy", count: 2 },
-      { difficulty: "medium", count: 1 },
-    ],
-    topic_tags: ["arrays"],
-    problem_style: "stdout",
-    constraints: "Java 17, JUnit 5, no package declarations.",
-    test_case_count: 8,
-  };
-
-  const d = proposeGenerationFallback(spec);
-  assert.ok(d);
-  assert.match(d.reason, /return-based/i);
-  assert.deepEqual(d.patch, [{ op: "replace", path: "/problem_style", value: "return" }]);
-});
-
-test("generation fallback: reduces hard to medium after return style", () => {
+test("generation fallback: reduces hard to medium", () => {
   const spec = {
     version: "1.0",
     language: "java",
@@ -36,7 +15,7 @@ test("generation fallback: reduces hard to medium after return style", () => {
       { difficulty: "hard", count: 2 },
     ],
     topic_tags: ["arrays"],
-    problem_style: "return",
+    problem_style: "stdout",
     constraints: "Java 17, JUnit 5, no package declarations.",
     test_case_count: 8,
   };
@@ -61,13 +40,13 @@ test("generation fallback: preserves explicit hard intent when downgrade is disa
       { difficulty: "hard", count: 2 },
     ],
     topic_tags: ["arrays"],
-    problem_style: "return",
+    problem_style: "stdout",
     constraints: "Java 17, JUnit 5, no package declarations.",
     test_case_count: 8,
   };
 
   const d = proposeGenerationFallbackWithPolicy(spec, { allowDowngradeDifficulty: false, allowNarrowTopics: true });
-  // No other fallback steps apply (return style already set; topics already narrow).
+  // No other fallback steps apply (topics already narrow).
   assert.equal(d, null);
 });
 
@@ -81,7 +60,7 @@ test("generation fallback: narrows topic scope when many tags", () => {
       { difficulty: "medium", count: 1 },
     ],
     topic_tags: ["a", "b", "c", "d", "e"],
-    problem_style: "return",
+    problem_style: "stdout",
     constraints: "Java 17, JUnit 5, no package declarations.",
     test_case_count: 8,
   };
