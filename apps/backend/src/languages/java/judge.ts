@@ -5,6 +5,7 @@ import { trace } from "../../utils/trace";
 import { getJudgeTimeoutMs, runDocker, stripAnsi } from "../../judge/docker";
 import { writeUserFiles } from "../../judge/files";
 import { mkCodemTmpDir } from "../../judge/tmp";
+import { inferClassName } from "../../utils/javaCodegen";
 
 function parseJUnitTree(stdout: string): { passed: string[]; failed: string[] } {
   const clean = stripAnsi(stdout);
@@ -27,11 +28,6 @@ function parseJUnitTree(stdout: string): { passed: string[]; failed: string[] } 
   }
 
   return { passed, failed };
-}
-
-function inferClassName(source: string, fallback: string): string {
-  const match = source.match(/class\s+([A-Za-z_][A-Za-z0-9_]*)/);
-  return match && match[1] ? match[1] : fallback;
 }
 
 export type JavaFiles = Record<string, string>;

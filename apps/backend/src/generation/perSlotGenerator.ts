@@ -403,6 +403,45 @@ function inferPrimaryClassName(starterCode: string, fallback: string): string {
   return inferClassName(starterCode, fallback);
 }
 
+function assertJavaLegacyDraftInvariants(slot: ProblemSlot, draft: Extract<GeneratedProblemDraft, { language: "java"; reference_solution: string }>) {
+  if (!("starter_code" in draft)) return;
+
+  const starterCode = String((draft as any).starter_code ?? "");
+  const testSuite = String((draft as any).test_suite ?? "");
+  const referenceSolution = String((draft as any).reference_solution ?? "");
+
+  const starterPublicTypes = getTopLevelPublicTypeNames(starterCode);
+  if (starterPublicTypes.length !== 1) {
+    throw new Error("starter_code must declare exactly one top-level public type.");
+  }
+  const className = inferPrimaryClassName(starterCode, `Problem${slot.index + 1}`);
+
+  const expectedTestClassName = `${className}Test`;
+  const actualTestClassName = inferPrimaryClassName(testSuite, expectedTestClassName);
+  if (actualTestClassName !== expectedTestClassName) {
+    throw new Error(`Test suite class name "${actualTestClassName}" must match "${expectedTestClassName}".`);
+  }
+
+  if (/^\s*package\s+/m.test(referenceSolution)) {
+    throw new Error(`reference_solution for slot ${slot.index} contains package declaration.`);
+  }
+  const refPublicTypes = getTopLevelPublicTypeNames(referenceSolution);
+  if (refPublicTypes.length !== 1) {
+    throw new Error("reference_solution must declare exactly one top-level public type.");
+  }
+  const refClassName = inferPrimaryClassName(referenceSolution, "");
+  if (refClassName !== className) {
+    throw new Error(
+      `reference_solution class name "${refClassName}" does not match starter_code class name "${className}".`
+    );
+  }
+
+  // Avoid pathological patterns that are guaranteed to fail compilation.
+  if (/\bwhile\s*\(\s*false\s*\)\s*\{?/.test(referenceSolution)) {
+    throw new Error('reference_solution must not include "while(false)" (unreachable statement).');
+  }
+}
+
 function assertJavaFilenameMatchesPublicClass(filename: string, source: string) {
   const publicType = getTopLevelPublicTypeNames(source)[0];
   if (!publicType) return; // no public top-level type is okay
@@ -728,6 +767,8 @@ export async function generateSingleProblem(
       const first = result.error.issues[0];
       throw new Error(`Java reference_solution repair produced invalid draft: ${first?.message ?? "unknown error"}`);
     }
+    // Ensure repaired draft still satisfies deterministic Java invariants before running Docker again.
+    assertJavaLegacyDraftInvariants(slot, result.data as any);
     return { draft: result.data, meta: { llmOutputHash } };
   }
 
@@ -1197,7 +1238,7 @@ export async function generateSingleProblem(
 
       const targetClassName = target.path.replace(/\.java$/i, "");
       const expectedTestClassName = `${targetClassName}Test`;
-      const actualTestClassName = inferClassName(testSuite, expectedTestClassName);
+      const actualTestClassName = inferPrimaryClassName(testSuite, expectedTestClassName);
       if (actualTestClassName !== expectedTestClassName) {
         throw new Error(
           `Test suite class name "${actualTestClassName}" must match "${expectedTestClassName}".`
@@ -1317,18 +1358,19 @@ export async function generateSingleProblem(
     let starterCode =
       typeof raw.starter_code === "string" && raw.starter_code.trim() ? raw.starter_code.trim() : "";
 
+    // If starter_code missing or has package, synthesize
+    let className = inferPrimaryClassName(starterCode, `Problem${slot.index + 1}`);
+    if (!starterCode.trim() || /^\s*package\s+/m.test(starterCode)) {
+      starterCode = buildDefaultClassSkeleton(className);
+      className = inferPrimaryClassName(starterCode, `Problem${slot.index + 1}`);
+    }
+
     const starterPublicTypes = getTopLevelPublicTypeNames(starterCode);
     if (starterPublicTypes.length > 1) {
       throw new Error("starter_code must not declare more than one top-level public type.");
     }
-
-    // Infer class name from starter_code (prefer public class name)
-    let className = inferPrimaryClassName(starterCode, `Problem${slot.index + 1}`);
-
-    // If starter_code missing or has package, synthesize
-    if (!starterCode.trim() || /^\s*package\s+/m.test(starterCode)) {
-      starterCode = buildDefaultClassSkeleton(className);
-      className = inferPrimaryClassName(starterCode, `Problem${slot.index + 1}`);
+    if (starterPublicTypes.length === 0) {
+      throw new Error("starter_code must declare exactly one top-level public type.");
     }
 
     let testSuite =
@@ -1353,7 +1395,7 @@ export async function generateSingleProblem(
 
     // Ensure test class name matches starter_code class name + "Test"
     const expectedTestClassName = `${className}Test`;
-    const actualTestClassName = inferClassName(testSuite, expectedTestClassName);
+    const actualTestClassName = inferPrimaryClassName(testSuite, expectedTestClassName);
     if (actualTestClassName !== expectedTestClassName) {
       throw new Error(
         `Test suite class name "${actualTestClassName}" must match "${expectedTestClassName}".`
@@ -1375,6 +1417,9 @@ export async function generateSingleProblem(
     const refPublicTypes = getTopLevelPublicTypeNames(referenceSolution);
     if (refPublicTypes.length > 1) {
       throw new Error("reference_solution must not declare more than one top-level public type.");
+    }
+    if (refPublicTypes.length === 0) {
+      throw new Error("reference_solution must declare exactly one top-level public type.");
     }
 
     // Ensure reference solution has no package
