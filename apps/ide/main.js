@@ -1326,7 +1326,9 @@ async function createWindowAndBoot() {
   const win = new BrowserWindow({
     width: 1320,
     height: 860,
-    show: true,
+    // Avoid showing a dev-looking splash immediately on app launch.
+    // We keep the window hidden unless boot takes "long enough" to warrant showing a minimal launch screen.
+    show: false,
     backgroundColor: "#0b1220",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -1376,6 +1378,30 @@ async function createWindowAndBoot() {
   win.webContents.on("will-navigate", maybeBlockNavigation);
   win.webContents.on("will-redirect", maybeBlockNavigation);
 
+  let frontendLoaded = false;
+  const shouldShowSplash = (() => {
+    const raw = process.env.CODEMM_SHOW_STARTUP_SPLASH;
+    if (raw == null) return true;
+    const s = String(raw).trim().toLowerCase();
+    if (s === "0" || s === "false" || s === "no") return false;
+    return true;
+  })();
+
+  // If boot is slow (first launch / docker images / missing deps), show a minimal launch screen.
+  // If boot is fast, we avoid showing any intermediate UI at all.
+  const SPLASH_DELAY_MS = 1200;
+  const splashTimer = setTimeout(() => {
+    try {
+      if (!shouldShowSplash) return;
+      if (frontendLoaded) return;
+      if (win.isDestroyed()) return;
+      if (win.isVisible()) return;
+      win.show();
+    } catch {
+      // ignore
+    }
+  }, SPLASH_DELAY_MS);
+
   win.loadURL(
     `data:text/html;charset=utf-8,${encodeURIComponent(`
       <!doctype html>
@@ -1393,45 +1419,26 @@ async function createWindowAndBoot() {
               display: grid;
               place-items: center;
             }
-            .card {
-              width: min(720px, calc(100vw - 40px));
-              border: 1px solid rgba(148, 163, 184, 0.18);
-              background: rgba(2, 6, 23, 0.45);
-              border-radius: 16px;
-              padding: 22px 22px;
-              box-shadow: 0 24px 80px rgba(0,0,0,0.45);
+            .wrap { text-align: center; padding: 24px; }
+            .brand { font-size: 18px; font-weight: 600; letter-spacing: 0.01em; }
+            .sub { margin-top: 10px; color: rgba(226, 232, 240, 0.75); font-size: 13px; line-height: 1.5; }
+            .spinner {
+              margin: 18px auto 0 auto;
+              width: 22px;
+              height: 22px;
+              border-radius: 999px;
+              border: 2px solid rgba(148, 163, 184, 0.28);
+              border-top-color: rgba(56, 189, 248, 0.95);
+              animation: spin 0.9s linear infinite;
             }
-            h1 { font-size: 16px; margin: 0 0 12px 0; letter-spacing: 0.02em; }
-            .muted { color: rgba(226, 232, 240, 0.78); font-size: 13px; line-height: 1.5; }
-            .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-            .row { display: flex; gap: 10px; margin-top: 14px; align-items: center; }
-            .dot {
-              width: 10px; height: 10px; border-radius: 999px;
-              background: #38bdf8;
-              box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.55);
-              animation: pulse 1.6s infinite;
-            }
-            @keyframes pulse {
-              0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.55); }
-              70% { box-shadow: 0 0 0 12px rgba(56, 189, 248, 0.0); }
-              100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.0); }
-            }
+            @keyframes spin { to { transform: rotate(360deg); } }
           </style>
         </head>
         <body>
-          <div class="card">
-            <h1>Starting Codemm-Desktop…</h1>
-            <div class="muted">
-              Booting engine (agent + judge) and frontend UI locally.
-              Docker is required for judging.
-            </div>
-            <div class="row muted">
-              <div class="dot"></div>
-              <div>Engine: <span class="mono">local IPC</span> · Frontend: <span class="mono">${frontendUrlHint}</span></div>
-            </div>
-            <div class="muted" style="margin-top: 14px;">
-              If this hangs, check the terminal logs for missing deps.
-            </div>
+          <div class="wrap">
+            <div class="brand">Codemm</div>
+            <div class="sub">Launching…</div>
+            <div class="spinner" aria-hidden="true"></div>
           </div>
         </body>
       </html>
@@ -1664,7 +1671,15 @@ async function createWindowAndBoot() {
   }
 
   console.log("[ide] Frontend is ready; loading UI...");
+  frontendLoaded = true;
+  clearTimeout(splashTimer);
   await win.loadURL(frontendUrl);
+  // Show the window once the real UI is ready to paint.
+  try {
+    if (!win.isDestroyed() && !win.isVisible()) win.show();
+  } catch {
+    // ignore
+  }
 
   const cleanup = () => {
     killProcessTree(frontendProc);
