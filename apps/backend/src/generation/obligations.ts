@@ -3,6 +3,7 @@ import type { ProblemSlot } from "../planner/types";
 export type ObligationId =
   | "java.single_public_type_per_unit"
   | "java.test_class_matches_target"
+  | "java.primary_type_matches_target"
   | "java.no_while_false"
   | "java.no_stdin"
   | "java.structural_topic.polymorphism"
@@ -58,6 +59,7 @@ export function deriveSlotObligations(slot: ProblemSlot): ObligationId[] {
   if (slot.language === "java") {
     out.push("java.single_public_type_per_unit");
     out.push("java.test_class_matches_target");
+    out.push("java.primary_type_matches_target");
     out.push("java.no_while_false");
     if (shouldForbidStdinForSlot(slot)) out.push("java.no_stdin");
 
@@ -72,4 +74,3 @@ export function deriveSlotObligations(slot: ProblemSlot): ObligationId[] {
 
   return Array.from(new Set(out));
 }
-

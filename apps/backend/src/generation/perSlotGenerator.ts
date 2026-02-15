@@ -14,10 +14,11 @@ import type { ProblemSlot } from "../planner/types";
 import { buildSlotPromptWithContext, getSystemPromptForSlot } from "./prompts";
 import { trace, traceText } from "../utils/trace";
 import { GenerationContractError } from "./errors";
-import { getTopLevelPublicTypeNames } from "../utils/javaSource";
+import { getTopLevelPublicTypeNames, javaUsesStdin } from "../utils/javaSource";
 import type { SlotPromptContext } from "../languages/types";
 import { coerceSqlTestSuiteToJsonString } from "../languages/sql/rules";
-import { ObligationViolationError } from "./obligations";
+import { ObligationViolationError, shouldForbidStdinForSlot, type ObligationId } from "./obligations";
+import { demoteExtraTopLevelPublicTypes, rewriteJavaTopLevelPublicClassName } from "../utils/javaRewrite";
 
 const CODEX_MODEL = process.env.CODEX_MODEL;
 const MAX_TOKENS = 5000;
@@ -217,7 +218,7 @@ export type RepairContext = {
 
 export type GeneratedDraftWithMeta = {
   draft: GeneratedProblemDraft;
-  meta: { llmOutputHash: string };
+  meta: { llmOutputHash: string; rewrites?: Array<{ id: string; applied: boolean; detail?: string }> };
 };
 
 async function repairCppTestSuite(args: {
@@ -402,6 +403,15 @@ function inferPrimaryClassName(starterCode: string, fallback: string): string {
   const topLevelPublic = getTopLevelPublicTypeNames(starterCode)[0];
   if (topLevelPublic) return topLevelPublic;
   return inferClassName(starterCode, fallback);
+}
+
+function mapJavaStructuralTopicErrorToObligationId(message: string): ObligationId | null {
+  const m = /Structural topic requirement failed \((polymorphism|inheritance|abstraction|encapsulation|composition)\)/i.exec(
+    String(message ?? "")
+  );
+  const key = m?.[1]?.toLowerCase();
+  if (!key) return null;
+  return `java.structural_topic.${key}` as ObligationId;
 }
 
 function assertJavaLegacyDraftInvariants(slot: ProblemSlot, draft: Extract<GeneratedProblemDraft, { language: "java"; reference_solution: string }>) {
@@ -1201,6 +1211,7 @@ export async function generateSingleProblem(
 
     // Workspace variant (Phase B): accept workspace + reference_workspace.
     if (raw.workspace && raw.reference_workspace) {
+      const rewrites: Array<{ id: string; applied: boolean; detail?: string }> = [];
       const title =
         typeof raw.title === "string" && raw.title.trim()
           ? raw.title.trim()
@@ -1239,11 +1250,40 @@ export async function generateSingleProblem(
 
       const targetClassName = target.path.replace(/\.java$/i, "");
       const expectedTestClassName = `${targetClassName}Test`;
-      const actualTestClassName = inferPrimaryClassName(testSuite, expectedTestClassName);
-      if (actualTestClassName !== expectedTestClassName) {
-        throw new Error(
-          `Test suite class name "${actualTestClassName}" must match "${expectedTestClassName}".`
-        );
+      {
+        const renamed = rewriteJavaTopLevelPublicClassName({ source: testSuite, expectedName: expectedTestClassName });
+        if (renamed.changed) {
+          testSuite = renamed.source;
+          rewrites.push({
+            id: "java.rename_test_class",
+            applied: true,
+            detail: `Renamed public test class "${renamed.previousName}" -> "${expectedTestClassName}".`,
+          });
+        }
+        const actualTestClassName = inferPrimaryClassName(testSuite, expectedTestClassName);
+        if (actualTestClassName !== expectedTestClassName) {
+          throw new ObligationViolationError(
+            `Test suite class name "${actualTestClassName}" must match "${expectedTestClassName}".`,
+            { obligationId: "java.test_class_matches_target" }
+          );
+        }
+      }
+
+      const forbidStdin = shouldForbidStdinForSlot(slot);
+      if (forbidStdin) {
+        const all = [
+          testSuite,
+          ...(Array.isArray(raw.workspace.files) ? raw.workspace.files.map((f: any) => String(f?.content ?? "")) : []),
+          ...(Array.isArray(raw.reference_workspace.files)
+            ? raw.reference_workspace.files.map((f: any) => String(f?.content ?? ""))
+            : []),
+        ].join("\n\n");
+        if (javaUsesStdin(all)) {
+          throw new ObligationViolationError(
+            "stdin reads are not allowed for this slot (use pure methods + deterministic tests).",
+            { obligationId: "java.no_stdin" }
+          );
+        }
       }
 
       // Do not require tests to explicitly reference the target type at contract-time.
@@ -1256,30 +1296,69 @@ export async function generateSingleProblem(
           .filter((f) => f && typeof f.content === "string")
           .map((f) => String(f.content))
           .join("\n\n");
+        if (/\bwhile\s*\(\s*false\s*\)\s*\{?/.test(refCombined)) {
+          throw new ObligationViolationError('reference workspace must not include "while(false)" (unreachable).', {
+            obligationId: "java.no_while_false",
+          });
+        }
         assertJavaStructuralTopicRequirements({
           topics: slot.topics,
           referenceSource: refCombined,
           testSuite,
         });
       } catch (e: any) {
-        throw new Error(
-          `Java topic structure validation failed for slot ${slot.index}: ${e?.message ?? String(e)}`
+        if (e instanceof ObligationViolationError) throw e;
+        const innerMsg = e?.message ?? String(e);
+        const mapped = mapJavaStructuralTopicErrorToObligationId(innerMsg);
+        const fallback: ObligationId =
+          (slot.topics.some((t) => String(t).toLowerCase().includes("inheritance")) && "java.structural_topic.inheritance") ||
+          (slot.topics.some((t) => String(t).toLowerCase().includes("abstraction")) && "java.structural_topic.abstraction") ||
+          (slot.topics.some((t) => String(t).toLowerCase().includes("encapsulation")) && "java.structural_topic.encapsulation") ||
+          (slot.topics.some((t) => String(t).toLowerCase().includes("composition")) && "java.structural_topic.composition") ||
+          "java.structural_topic.polymorphism";
+        throw new ObligationViolationError(
+          `Java topic structure validation failed for slot ${slot.index}: ${innerMsg}`,
+          { obligationId: mapped ?? fallback }
         );
       }
 
       // Ensure file constraints: at most one public class per file + filename matches public class.
       for (const file of raw.workspace.files as any[]) {
         if (!file || typeof file.path !== "string" || typeof file.content !== "string") continue;
+        const keep = String(file.path).replace(/\.java$/i, "");
+        const rewritten = demoteExtraTopLevelPublicTypes(file.content, { keepName: keep });
+        if (rewritten.changed) {
+          file.content = rewritten.source;
+          rewrites.push({
+            id: "java.demote_extra_public_types",
+            applied: true,
+            detail: `Demoted extra public types in "${file.path}".`,
+          });
+        }
         if (getTopLevelPublicTypeNames(file.content).length > 1) {
-          throw new Error(`File "${file.path}" must not declare more than one top-level public type.`);
+          throw new ObligationViolationError(`File "${file.path}" must not declare more than one top-level public type.`, {
+            obligationId: "java.single_public_type_per_unit",
+          });
         }
         assertJavaFilenameMatchesPublicClass(file.path, file.content);
       }
 
       for (const file of raw.reference_workspace.files as any[]) {
         if (!file || typeof file.path !== "string" || typeof file.content !== "string") continue;
+        const keep = String(file.path).replace(/\.java$/i, "");
+        const rewritten = demoteExtraTopLevelPublicTypes(file.content, { keepName: keep });
+        if (rewritten.changed) {
+          file.content = rewritten.source;
+          rewrites.push({
+            id: "java.demote_extra_public_types",
+            applied: true,
+            detail: `Demoted extra public types in "${file.path}".`,
+          });
+        }
         if (getTopLevelPublicTypeNames(file.content).length > 1) {
-          throw new Error(`File "${file.path}" must not declare more than one top-level public type.`);
+          throw new ObligationViolationError(`File "${file.path}" must not declare more than one top-level public type.`, {
+            obligationId: "java.single_public_type_per_unit",
+          });
         }
         assertJavaFilenameMatchesPublicClass(file.path, file.content);
       }
@@ -1340,7 +1419,7 @@ export async function generateSingleProblem(
       }
 
       trace("generation.draft.meta", { slotIndex: slot.index, title, className: targetClassName, difficulty, topicTag });
-      return { draft: result.data, meta: { llmOutputHash } };
+      return { draft: result.data, meta: { llmOutputHash, rewrites } };
     }
 
     const baseId =
@@ -1356,8 +1435,22 @@ export async function generateSingleProblem(
         ? raw.description.trim()
         : `Problem description for ${title}.`;
 
+    const rewrites: Array<{ id: string; applied: boolean; detail?: string }> = [];
+
     let starterCode =
       typeof raw.starter_code === "string" && raw.starter_code.trim() ? raw.starter_code.trim() : "";
+
+    {
+      const rewritten = demoteExtraTopLevelPublicTypes(starterCode);
+      if (rewritten.changed) {
+        starterCode = rewritten.source;
+        rewrites.push({
+          id: "java.demote_extra_public_types",
+          applied: true,
+          detail: "Demoted extra top-level public types in starter_code.",
+        });
+      }
+    }
 
     // If starter_code missing or has package, synthesize
     let className = inferPrimaryClassName(starterCode, `Problem${slot.index + 1}`);
@@ -1368,10 +1461,14 @@ export async function generateSingleProblem(
 
     const starterPublicTypes = getTopLevelPublicTypeNames(starterCode);
     if (starterPublicTypes.length > 1) {
-      throw new Error("starter_code must not declare more than one top-level public type.");
+      throw new ObligationViolationError("starter_code must not declare more than one top-level public type.", {
+        obligationId: "java.single_public_type_per_unit",
+      });
     }
     if (starterPublicTypes.length === 0) {
-      throw new Error("starter_code must declare exactly one top-level public type.");
+      throw new ObligationViolationError("starter_code must declare exactly one top-level public type.", {
+        obligationId: "java.single_public_type_per_unit",
+      });
     }
 
     let testSuite =
@@ -1396,11 +1493,23 @@ export async function generateSingleProblem(
 
     // Ensure test class name matches starter_code class name + "Test"
     const expectedTestClassName = `${className}Test`;
-    const actualTestClassName = inferPrimaryClassName(testSuite, expectedTestClassName);
-    if (actualTestClassName !== expectedTestClassName) {
-      throw new Error(
-        `Test suite class name "${actualTestClassName}" must match "${expectedTestClassName}".`
-      );
+    {
+      const renamed = rewriteJavaTopLevelPublicClassName({ source: testSuite, expectedName: expectedTestClassName });
+      if (renamed.changed) {
+        testSuite = renamed.source;
+        rewrites.push({
+          id: "java.rename_test_class",
+          applied: true,
+          detail: `Renamed public test class "${renamed.previousName}" -> "${expectedTestClassName}".`,
+        });
+      }
+      const actualTestClassName = inferPrimaryClassName(testSuite, expectedTestClassName);
+      if (actualTestClassName !== expectedTestClassName) {
+        throw new ObligationViolationError(
+          `Test suite class name "${actualTestClassName}" must match "${expectedTestClassName}".`,
+          { obligationId: "java.test_class_matches_target" }
+        );
+      }
     }
 
     // Do not require tests to explicitly reference the target type at contract-time.
@@ -1415,12 +1524,28 @@ export async function generateSingleProblem(
       throw new Error(`Missing reference_solution for slot ${slot.index}.`);
     }
 
+    {
+      const rewritten = demoteExtraTopLevelPublicTypes(referenceSolution, { keepName: className });
+      if (rewritten.changed) {
+        referenceSolution = rewritten.source;
+        rewrites.push({
+          id: "java.demote_extra_public_types",
+          applied: true,
+          detail: "Demoted extra top-level public types in reference_solution.",
+        });
+      }
+    }
+
     const refPublicTypes = getTopLevelPublicTypeNames(referenceSolution);
     if (refPublicTypes.length > 1) {
-      throw new Error("reference_solution must not declare more than one top-level public type.");
+      throw new ObligationViolationError("reference_solution must not declare more than one top-level public type.", {
+        obligationId: "java.single_public_type_per_unit",
+      });
     }
     if (refPublicTypes.length === 0) {
-      throw new Error("reference_solution must declare exactly one top-level public type.");
+      throw new ObligationViolationError("reference_solution must declare exactly one top-level public type.", {
+        obligationId: "java.single_public_type_per_unit",
+      });
     }
 
     // Ensure reference solution has no package
@@ -1428,11 +1553,27 @@ export async function generateSingleProblem(
       throw new Error(`reference_solution for slot ${slot.index} contains package declaration.`);
     }
 
+    // Avoid pathological patterns that are guaranteed to fail compilation.
+    if (/\bwhile\s*\(\s*false\s*\)\s*\{?/.test(referenceSolution)) {
+      throw new ObligationViolationError('reference_solution must not include "while(false)" (unreachable statement).', {
+        obligationId: "java.no_while_false",
+      });
+    }
+
+    const forbidStdin = shouldForbidStdinForSlot(slot);
+    if (forbidStdin && (javaUsesStdin(starterCode) || javaUsesStdin(referenceSolution) || javaUsesStdin(testSuite))) {
+      throw new ObligationViolationError(
+        "stdin reads are not allowed for this slot (use pure methods + deterministic tests).",
+        { obligationId: "java.no_stdin" }
+      );
+    }
+
     // Ensure reference solution matches class name (prefer public class too)
     const refClassName = inferPrimaryClassName(referenceSolution, "");
     if (refClassName !== className) {
-      throw new Error(
-        `reference_solution class name "${refClassName}" does not match starter_code class name "${className}".`
+      throw new ObligationViolationError(
+        `reference_solution class name "${refClassName}" does not match starter_code class name "${className}".`,
+        { obligationId: "java.primary_type_matches_target" }
       );
     }
 
@@ -1444,8 +1585,18 @@ export async function generateSingleProblem(
         testSuite,
       });
     } catch (e: any) {
-      throw new Error(
-        `Java topic structure validation failed for slot ${slot.index}: ${e?.message ?? String(e)}`
+      if (e instanceof ObligationViolationError) throw e;
+      const innerMsg = e?.message ?? String(e);
+      const mapped = mapJavaStructuralTopicErrorToObligationId(innerMsg);
+      const fallback: ObligationId =
+        (slot.topics.some((t) => String(t).toLowerCase().includes("inheritance")) && "java.structural_topic.inheritance") ||
+        (slot.topics.some((t) => String(t).toLowerCase().includes("abstraction")) && "java.structural_topic.abstraction") ||
+        (slot.topics.some((t) => String(t).toLowerCase().includes("encapsulation")) && "java.structural_topic.encapsulation") ||
+        (slot.topics.some((t) => String(t).toLowerCase().includes("composition")) && "java.structural_topic.composition") ||
+        "java.structural_topic.polymorphism";
+      throw new ObligationViolationError(
+        `Java topic structure validation failed for slot ${slot.index}: ${innerMsg}`,
+        { obligationId: mapped ?? fallback }
       );
     }
 
@@ -1491,7 +1642,7 @@ export async function generateSingleProblem(
       );
     }
 
-    return { draft: result.data, meta: { llmOutputHash } };
+    return { draft: result.data, meta: { llmOutputHash, rewrites } };
   } catch (err: any) {
     const msg = err?.message ?? String(err);
     const obligationId = err instanceof ObligationViolationError ? err.obligationId : undefined;

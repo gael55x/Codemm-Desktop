@@ -200,6 +200,7 @@ export async function generateProblemsFromPlan(
           slotIndex: slot.index,
           attempt: attempts,
           obligations: deriveSlotObligations(slot).map((id) => ({ id, ok: true })),
+          ...(Array.isArray((generated.meta as any)?.rewrites) ? { rewrites: (generated.meta as any).rewrites } : {}),
         });
 
         // Step 2: Validate reference_solution compiles and passes tests (Docker)
